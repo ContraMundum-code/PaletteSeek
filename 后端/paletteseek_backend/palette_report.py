@@ -13,9 +13,16 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import ssl
+import tempfile
 import urllib.request
 from pathlib import Path
+
+_CACHE_ROOT = Path(tempfile.gettempdir()) / "paletteseek-cache"
+_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(_CACHE_ROOT / "matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(_CACHE_ROOT))
 
 import matplotlib
 
@@ -78,6 +85,13 @@ def load_original_image(record: dict) -> Image.Image:
     palette_path = str(record.get("palette_image_path", "")).strip()
     if palette_path and Path(palette_path).exists():
         return Image.open(palette_path).convert("RGB")
+
+    palette_image_filename = str(record.get("palette_image_filename", "")).strip()
+    palette_cards_dir = record.get("_palette_cards_dir")
+    if palette_image_filename and palette_cards_dir:
+        fallback_path = Path(palette_cards_dir) / palette_image_filename
+        if fallback_path.exists():
+            return Image.open(fallback_path).convert("RGB")
 
     raise ValueError("既无法读取原图，也无法回退到本地色卡图")
 
@@ -324,19 +338,23 @@ def render_palette_report_from_artwork(
     excel_path: str | Path,
     artwork_id: int | str,
     output_path: str | Path,
-    sheet_name: str = "artworks_with_palette_100",
+    sheet_name: str | None = None,
 ) -> Path:
-    dataset = ArtworkDataset(excel_path, sheet_name=sheet_name)
+    if sheet_name:
+        dataset = ArtworkDataset(excel_path, sheet_name=sheet_name)
+    else:
+        dataset = ArtworkDataset(excel_path)
     record = dataset.get_by_id(artwork_id)
     if record is None:
         raise ValueError(f"找不到作品 ID: {artwork_id}")
+    record["_palette_cards_dir"] = Path(excel_path).parent / "color_cards"
     return render_palette_report(record, output_path)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a PaletteSeek palette report image")
     parser.add_argument("--excel", default="数据.xlsx", help="数据工作簿路径")
-    parser.add_argument("--sheet", default="artworks_with_palette_100", help="工作表名称")
+    parser.add_argument("--sheet", default=None, help="工作表名称；默认使用后端数据加载器的主表")
     parser.add_argument("--artwork-id", required=True, help="作品 ID")
     parser.add_argument("--output", required=True, help="输出图片路径，如 reports/869_report.png")
     return parser

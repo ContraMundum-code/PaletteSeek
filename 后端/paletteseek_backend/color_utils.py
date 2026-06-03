@@ -189,3 +189,147 @@ def is_valid_hex(hex_str: str) -> bool:
     """检查字符串是否为有效 HEX 色值。"""
     s = hex_str.strip().lstrip("#")
     return bool(re.fullmatch(r"[0-9A-Fa-f]{6}", s))
+
+
+# ---------------------------------------------------------------------------
+# 色卡颜色家族分类（用于按比例加权的颜色词匹配）
+# ---------------------------------------------------------------------------
+
+def classify_hex_family(hex_str: str) -> str:
+    """
+    将一个 HEX 色值分类为颜色家族名称（与数据集 color_tags 词典一致）。
+
+    返回值示例：蓝色系 / 绿色系 / 棕色大地色系 / 橙色系 / 黄色系 /
+                红色系 / 紫色系 / 粉色系 / 蓝绿色系 / 灰色系 / 黑色系 / 白色系
+    """
+    r, g, b = hex_to_rgb(hex_str)
+    hue, sat, val = rgb_to_hsv(r, g, b)
+    # sat/val 从 rgb_to_hsv 出来是 0~1，转成百分比
+    sat_pct = sat * 100
+    val_pct = val * 100
+
+    if val_pct < 12:
+        return "黑色系"
+    if val_pct > 88 and sat_pct < 10:
+        return "白色系"
+    if sat_pct < 12:
+        return "灰色系"
+    # 低亮度橙色/黃色帶有色相的深色 → 棕色系
+    if sat_pct < 50 and val_pct < 38 and (hue < 70 or hue >= 330):
+        return "棕色大地色系"
+
+    h = hue
+    if h < 18 or h >= 345:
+        return "红色系"
+    if h < 42:
+        return "棕色大地色系" if val_pct < 50 else "橙色系"
+    if h < 68:
+        return "黄色系"
+    if h < 155:
+        return "绿色系"
+    if h < 195:
+        return "蓝绿色系"
+    if h < 258:
+        return "蓝色系"
+    if h < 298:
+        return "紫色系"
+    return "粉色系"
+
+
+# 色调/饱和度描述词 → 判断函数
+# 用于 _color_palette_score 的非色系词处理
+_TONE_CHECKERS: dict[str, str] = {
+    "暖色调": "warm", "暖色": "warm",
+    "冷色调": "cool", "冷色": "cool",
+    "低饱和": "low_sat", "低饱和度": "low_sat",
+    "高饱和": "high_sat", "高饱和度": "high_sat",
+    "深色调": "dark", "低明度": "dark",
+    "高明度": "bright", "浅色调": "bright", "高明度色调": "bright",
+    "中明度": "mid",
+}
+
+
+def palette_family_score(
+    color_terms: list[str],
+    palette_hexes: list[str],
+    palette_ratios: list[float],
+) -> float:
+    """
+    以调色盘中每个颜色的实际占比为权重，计算用户颜色查询词的匹配分。
+
+    规则：
+      - 对于色系词（蓝色系、棕色大地色系 等）：
+          将每个 palette 颜色分类，找出与查询词匹配的颜色，
+          累加其 ratio → 得分（0~1，ratio 越大得分越高）
+      - 对于色调词（暖色调、冷色调、低饱和、深色调 等）：
+          用调色盘加权平均的 HSV 判断，返回软性分值
+
+    参数：
+        color_terms    : 用户颜色查询词列表
+        palette_hexes  : 作品 K-means 提取的主色 HEX 列表
+        palette_ratios : 对应占比（0~1 或百分比均可，自动归一化）
+
+    返回：0~1 的平均匹配分
+    """
+    if not color_terms or not palette_hexes:
+        return 0.0
+
+    # 归一化 ratios（先转为数值，再统一归一化，避免混合格式问题）
+    raw = []
+    for rv in palette_ratios:
+        try:
+            v = float(str(rv).strip().rstrip("%"))
+            raw.append(v / 100 if v > 1 else v)
+        except Exception:
+            raw.append(0.0)
+    total = sum(raw) or 1.0
+    norm = [r / total for r in raw]
+
+    # 每个 palette 色的 HSV 和家族
+    hsv_list = []
+    families = []
+    for hx in palette_hexes:
+        r2, g2, b2 = hex_to_rgb(hx)
+        h, s, v = rgb_to_hsv(r2, g2, b2)
+        hsv_list.append((h, s * 100, v * 100))   # H=0~360, S/V=0~100
+        families.append(classify_hex_family(hx))
+
+    # 调色盘加权平均
+    w_sat  = sum(hsv[1] * r for hsv, r in zip(hsv_list, norm))
+    w_val  = sum(hsv[2] * r for hsv, r in zip(hsv_list, norm))
+    warm_w = sum(r for (h, s, v), r in zip(hsv_list, norm)
+                 if (h < 90 or h > 330) and s > 15 and v > 15)
+    cool_w = sum(r for (h, s, v), r in zip(hsv_list, norm)
+                 if 160 < h < 280 and s > 15)
+
+    term_scores: list[float] = []
+    for qt in color_terms:
+        qt_lower = qt.lower()
+        tone = _TONE_CHECKERS.get(qt_lower) or _TONE_CHECKERS.get(qt)
+
+        if tone == "warm":
+            term_scores.append(min(warm_w * 1.5, 1.0))
+        elif tone == "cool":
+            term_scores.append(min(cool_w * 1.5, 1.0))
+        elif tone == "low_sat":
+            # 低饱和：平均饱和度越低越好
+            term_scores.append(max(0.0, 1.0 - w_sat / 35))
+        elif tone == "high_sat":
+            term_scores.append(max(0.0, (w_sat - 35) / 50))
+        elif tone == "dark":
+            term_scores.append(max(0.0, 1.0 - w_val / 40))
+        elif tone == "bright":
+            term_scores.append(max(0.0, (w_val - 55) / 45))
+        elif tone == "mid":
+            mid_score = 1.0 - abs(w_val - 55) / 45
+            term_scores.append(max(0.0, mid_score))
+        else:
+            # 色系词 → 精确匹配家族名，累加匹配颜色的 ratio
+            # 不用子字串匹配，避免 "绿色系" 误匹配 "蓝绿色系"
+            match_ratio = sum(
+                r for fam, r in zip(families, norm)
+                if qt_lower == fam.lower()
+            )
+            term_scores.append(min(match_ratio, 1.0))
+
+    return sum(term_scores) / len(term_scores) if term_scores else 0.0

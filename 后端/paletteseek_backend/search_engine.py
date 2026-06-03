@@ -35,11 +35,23 @@ import re
 from typing import Any
 
 try:
-    from .color_utils import is_valid_hex, palette_color_similarity
+    from .color_utils import (
+        classify_hex_family,
+        is_valid_hex,
+        palette_color_similarity,
+        palette_family_score,
+    )
     from .data_loader import ArtworkDataset
+    from .query_processor import process_query
 except ImportError:
-    from color_utils import is_valid_hex, palette_color_similarity
+    from color_utils import (
+        classify_hex_family,
+        is_valid_hex,
+        palette_color_similarity,
+        palette_family_score,
+    )
     from data_loader import ArtworkDataset
+    from query_processor import process_query
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +239,207 @@ def _boolean_score(parsed: dict, record: dict) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Category-aware 评分（新核心逻辑）
+# ---------------------------------------------------------------------------
+
+def _split_field(val: str) -> list[str]:
+    """将 '蓝色系、冷色调、蓝灰色' 拆成 ['蓝色系','冷色调','蓝灰色']。"""
+    return [t.strip().lower() for t in re.split(r"[、，,]", val) if t.strip()]
+
+
+def _field_match(query_terms: list[str], field_val: str) -> float:
+    """
+    AND 语义：query_terms 中每个词都必须在 field_val 的子标签里出现。
+    只要缺任意一个词就返回 0.0，避免「清新」命中但「黄色系」不命中仍被放行。
+    """
+    if not query_terms or not field_val:
+        return 0.0
+    field_tokens = _split_field(field_val)
+    if not field_tokens:
+        return 0.0
+    hits = 0
+    for qt in query_terms:
+        qt_lower = qt.lower()
+        for ft in field_tokens:
+            # 精确匹配 或 查询词是字段 token 的子串（如 "蓝色" in "蓝色系"）
+            # 不允许反向（字段 token 是查询词子串），避免 "蓝" 误匹配 "蓝色系"
+            if qt_lower == ft or qt_lower in ft:
+                hits += 1
+                break
+    if hits < len(query_terms):
+        return 0.0
+    return hits / len(query_terms)
+
+
+_COLOR_FAMILY_TERMS = {
+    "蓝色系", "绿色系", "红色系", "橙色系", "黄色系", "紫色系",
+    "粉色系", "蓝绿色系", "棕色大地色系", "灰色系", "黑色系", "白色系",
+}
+
+_COLOR_FAMILY_ALIASES = {
+    "黄色金色系": "黄色系",
+    "金色系": "黄色系",
+    "棕色系": "棕色大地色系",
+    "大地色": "棕色大地色系",
+    "土地色": "棕色大地色系",
+}
+
+
+def _canonical_color_family(term: str) -> str:
+    term = term.strip()
+    return _COLOR_FAMILY_ALIASES.get(term, term if term in _COLOR_FAMILY_TERMS else "")
+
+
+def _record_dominant_family(record: dict) -> str:
+    family = record.get("dominant_color_family") or record.get("color_family", "")
+    canonical = _canonical_color_family(str(family))
+    if canonical:
+        return canonical
+
+    hexes = record.get("palette_hexes", [])
+    ratios = record.get("palette_ratios", [])
+    if not hexes:
+        return ""
+
+    norm: list[float] = []
+    for ratio in ratios[:len(hexes)]:
+        try:
+            val = float(str(ratio).rstrip("%"))
+            norm.append(val / 100 if val > 1 else val)
+        except Exception:
+            norm.append(0.0)
+    if len(norm) < len(hexes):
+        norm += [0.0] * (len(hexes) - len(norm))
+    total = sum(norm)
+    if total <= 0:
+        norm = [1.0 / len(hexes)] * len(hexes)
+    else:
+        norm = [val / total for val in norm]
+
+    weights: dict[str, float] = {}
+    order: list[str] = []
+    for hex_value, ratio in zip(hexes, norm):
+        try:
+            fam = classify_hex_family(hex_value)
+        except Exception:
+            continue
+        if fam not in weights:
+            weights[fam] = 0.0
+            order.append(fam)
+        weights[fam] += ratio
+    return max(order, key=lambda fam: weights[fam]) if order else ""
+
+
+def _color_terms_score(terms: list[str], record: dict) -> float:
+    """
+    颜色标签按用户语义做硬筛选：
+    - 明确色系词必须等于色卡占比最高的主色系；
+    - 色调/饱和度等非主色系词继续用 palette_family_score，但每个词都要命中。
+    """
+    if not terms:
+        return 0.0
+
+    scores: list[float] = []
+    dominant_family = _record_dominant_family(record)
+
+    for term in terms:
+        canonical = _canonical_color_family(term)
+        if canonical:
+            if dominant_family != canonical:
+                return 0.0
+            scores.append(1.0)
+            continue
+
+        score = palette_family_score(
+            [term],
+            record.get("palette_hexes", []),
+            record.get("palette_ratios", []),
+        )
+        if score <= 0.0:
+            return 0.0
+        scores.append(score)
+
+    return sum(scores) / len(scores)
+
+
+def _category_score(query_cats: dict, record: dict) -> float:
+    """
+    按 category 分别评分，最终取各 category 分的平均。
+
+    规则：
+      - NOT 命中 → 直接返回 0.0
+      - 用户指定了某 category（terms 非空）：
+          * 该 category 字段完全不命中 → 该 category 得 0 分（拉低整体）
+          * 命中 → 得 0.5~1.0（按命中率）
+      - 用户未指定某 category：该 category 不参与评分
+      - other_terms：走全文 _term_score 兜底（权重较低）
+
+    最终分 = sum(category_scores) / len(active_categories)
+    """
+    # NOT 硬排除（文字 + 色板雙重檢查）
+    tag_text, full_text = _build_doc_text(record)
+    hexes  = record.get("palette_hexes", [])
+    ratios = record.get("palette_ratios", [])
+    for t in query_cats.get("not_terms", []):
+        t_lower = t.lower()
+        # 文字層面
+        if _term_score(t_lower, tag_text, full_text) > 0:
+            return 0.0
+        # 色板層面：色系詞且在色板中佔比 > 8% → 排除
+        canonical = _canonical_color_family(t)
+        if canonical and hexes:
+            not_ratio = palette_family_score([t], hexes, ratios)
+            if not_ratio > 0.08:
+                return 0.0
+
+    category_map = [
+        # (query key,          record field(s))
+        ("color_terms",   ["color_tags", "color_family", "overall_tone", "color_tags_cn"]),
+        ("emotion_terms", ["emotion_tags"]),
+        ("style_terms",   ["style_tags"]),
+        ("use_terms",     ["use_tags"]),
+    ]
+
+    cat_scores: list[float] = []
+
+    for key, fields in category_map:
+        terms = query_cats.get(key, [])
+        if not terms:
+            continue
+
+        if key == "color_terms":
+            # 颜色：以调色盘实际 hex + ratio 为准，占比越大权重越高
+            if record.get("palette_hexes"):
+                score = _color_terms_score(terms, record)
+            else:
+                # 无色卡数据时回退到文字匹配
+                combined = " ".join(record.get(f, "") for f in fields if record.get(f, ""))
+                score = _field_match(terms, combined)
+        else:
+            # 情绪 / 风格 / 场景：文字标签匹配
+            combined = " ".join(record.get(f, "") for f in fields if record.get(f, ""))
+            score = _field_match(terms, combined)
+
+        if score == 0.0:
+            return 0.0
+        cat_scores.append(score)
+
+    # other_terms 走全文，但仍遵守 AND：任意指定词缺失就排除
+    other_scores: list[float] = []
+    for t in query_cats.get("other_terms", []):
+        s = _term_score(t.lower(), tag_text, full_text)
+        if s == 0.0:
+            return 0.0
+        other_scores.append(s * 0.6)
+
+    if not cat_scores and not other_scores:
+        return 0.5  # 空查询
+
+    all_scores = cat_scores + other_scores
+    return sum(all_scores) / len(all_scores) if all_scores else 0.5
+
+
+# ---------------------------------------------------------------------------
 # TF-IDF 索引（用于混合检索的文本相关度分量）
 # ---------------------------------------------------------------------------
 
@@ -330,20 +543,32 @@ class SearchEngine:
             scored = [(0.5, rec) for rec in records]
             return self._format_results(scored[:top_k], score_key="keyword")
 
-        parsed = _parse_boolean_query(query)
-        all_terms = parsed["and_terms"] + [t for g in parsed["or_groups"] for t in g]
-        tfidf_arr = _tfidf_scores_for_terms(all_terms, self._records, self._idf_index)
+        # 分类拆词 + 同义词 / Query Mapping 展开
+        processed = process_query(query)
+
+        # TF-IDF 辅助（将所有 terms 拍平用于文本相关度）
+        all_terms = (
+            processed["color_terms"] + processed["emotion_terms"] +
+            processed["style_terms"] + processed["use_terms"] +
+            processed["other_terms"]
+        )
+        tfidf_arr = _tfidf_scores_for_terms(
+            [t.lower() for t in all_terms], self._records, self._idf_index
+        )
 
         scored = []
         for i, rec in enumerate(self._records):
             if id(rec) not in record_set:
                 continue
-            bool_s = _boolean_score(parsed, rec)
-            if bool_s == 0.0:
+            cat_s = _category_score(processed, rec)
+            if cat_s == 0.0:
                 continue
             tfidf_s = tfidf_arr[i]
-            combined = 0.6 * bool_s + 0.4 * tfidf_s
-            scored.append((combined, rec))
+            # 分类得分主导，TF-IDF 作为同分时的排序辅助
+            combined = 0.75 * cat_s + 0.25 * tfidf_s
+            result_rec = rec.copy()
+            result_rec["_query_info"] = processed
+            scored.append((combined, result_rec))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return self._format_results(scored[:top_k], score_key="keyword")
@@ -433,11 +658,18 @@ class SearchEngine:
 
         records = self._apply_filters(self._records, filters)
 
-        # 布尔解析 + TF-IDF（仅 query 非空时）
-        parsed = _parse_boolean_query(query) if query else None
-        if parsed:
-            all_terms = parsed["and_terms"] + [t for g in parsed["or_groups"] for t in g]
-            tfidf_arr = _tfidf_scores_for_terms(all_terms, self._records, self._idf_index)
+        # 分类拆词 + Query Mapping 展开
+        processed = process_query(query) if query else None
+
+        if processed:
+            all_terms = (
+                processed["color_terms"] + processed["emotion_terms"] +
+                processed["style_terms"] + processed["use_terms"] +
+                processed["other_terms"]
+            )
+            tfidf_arr = _tfidf_scores_for_terms(
+                [t.lower() for t in all_terms], self._records, self._idf_index
+            )
         else:
             tfidf_arr = None
 
@@ -458,13 +690,13 @@ class SearchEngine:
             else:
                 color_sim = 0.0
 
-            # 布尔标签得分 + TF-IDF 文本相关度
-            if parsed:
-                bool_s = _boolean_score(parsed, rec)
-                if bool_s == 0.0 and not hex_color:
-                    continue  # 纯文本模式下 AND/NOT 硬过滤
-                tfidf_s = tfidf_arr[i] if tfidf_arr is not None else 0.0
-                tag_sim  = 0.6 * bool_s + 0.4 * tfidf_s
+            # category-aware 标签得分 + TF-IDF 文本相关度
+            if processed:
+                cat_s    = _category_score(processed, rec)
+                if cat_s == 0.0:
+                    continue
+                tfidf_s  = tfidf_arr[i] if tfidf_arr is not None else 0.0
+                tag_sim  = 0.75 * cat_s + 0.25 * tfidf_s
                 text_sim = tfidf_s
             else:
                 tag_sim  = 0.0

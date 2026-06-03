@@ -1,8 +1,13 @@
 """
 data_loader.py
 --------------
-负责从 Excel 加载 artworks_with_palette_100，
-做类型清洗，并将所有字段以统一的 Python dict 格式暴露给检索模块。
+负责从 Excel 加载作品数据和色卡数据（合并），
+并将所有字段以统一的 Python dict 格式暴露给检索模块。
+
+数据来源：
+    数据.xlsx        → 主数据（artworks_final_100），含 color_tags / emotion_tags / style_tags / use_tags
+    palette_results.xlsx → 色卡数据（作品-色卡对应表），含 color_N_hex / color_N_ratio 等
+    两表以 id 做 LEFT JOIN，保留主数据所有记录。
 
 使用方式：
     from data_loader import ArtworkDataset
@@ -18,30 +23,25 @@ from typing import Any
 
 import pandas as pd
 
+try:
+    from .color_utils import classify_hex_family
+except ImportError:
+    from color_utils import classify_hex_family
 
-# 需要从 Excel 读取的字段（按 PDF 说明整理）
-_REQUIRED_COLS = [
-    "id",
-    "title",
-    "artist",
-    "year",
-    "culture",
-    "classification",
-    "medium",
-    "source_url",
-    "image_url",
-    "palette_image_path",
-    "palette_image_file",
-    "dominant_colors",
-    "color_ratio",
-    "color_tags",
-    "emotion_tags",
-    "style_tags",
-    "use_tags",
-    "color_tags_cn",
-    "color_chinese_names",
-    "overall_tone",
-    "color_family",
+
+_MAIN_SHEET   = "artworks_final_100"
+_PALETTE_FILE = "palette_results.xlsx"
+_PALETTE_SHEET = "作品-色卡对应表"
+
+_MAIN_COLS = [
+    "id", "title", "artist", "year", "culture", "classification",
+    "medium", "source_url", "image_url",
+    "color_tags", "emotion_tags", "style_tags", "use_tags",
+]
+
+_PALETTE_COLS = [
+    "palette_image_file", "palette_image_path",
+    "color_chinese_names", "overall_tone", "color_family", "color_tags_cn",
     "color_1_hex", "color_1_ratio", "color_1_cn",
     "color_2_hex", "color_2_ratio", "color_2_cn",
     "color_3_hex", "color_3_ratio", "color_3_cn",
@@ -53,151 +53,214 @@ _REQUIRED_COLS = [
     "color_9_hex", "color_9_ratio", "color_9_cn",
 ]
 
-_SHEET_NAME = "artworks_with_palette_100"
-
 
 def _clean_str(val: Any) -> str:
-    """将单元格值清洗为干净字符串；空值返回 ''。"""
     if pd.isna(val) or val is None:
         return ""
-    return str(val).strip()
+    s = str(val).strip()
+    return "" if s.lower() in ("nan", "none", "") else s
 
 
 def _parse_ratio(ratio_str: str) -> float:
-    """
-    将 '25.36%' 或 '0.2536' 统一转为 0~1 之间的浮点数。
-    解析失败时返回 0.0。
-    """
     s = str(ratio_str).strip().rstrip("%")
     try:
         val = float(s)
-        # 如果是百分比格式（>1），除以100
-        if val > 1:
-            val = val / 100.0
-        return round(val, 6)
+        return round(val / 100.0 if val > 1 else val, 6)
     except ValueError:
         return 0.0
 
 
-def _extract_palette_hexes_ratios(row: dict) -> tuple[list[str], list[float]]:
-    """从 color_N_hex / color_N_ratio 字段提取调色盘。"""
-    hexes = []
-    ratios = []
+def _extract_palette(rec: dict) -> tuple[list[str], list[float]]:
+    hexes, ratios = [], []
     for i in range(1, 10):
-        h = _clean_str(row.get(f"color_{i}_hex", ""))
-        r_str = _clean_str(row.get(f"color_{i}_ratio", ""))
-        if h and h != "nan":
+        h = _clean_str(rec.get(f"color_{i}_hex", ""))
+        r = _clean_str(rec.get(f"color_{i}_ratio", ""))
+        if h:
+            if not h.startswith("#"):
+                h = f"#{h}"
             hexes.append(h)
-            ratios.append(_parse_ratio(r_str))
+            ratios.append(_parse_ratio(r))
     return hexes, ratios
+
+
+def _normalize_ratios(ratios: list[float], color_count: int) -> list[float]:
+    normalized: list[float] = []
+    for ratio in ratios[:color_count]:
+        try:
+            val = float(str(ratio).strip().rstrip("%"))
+            normalized.append(val / 100.0 if val > 1 else val)
+        except Exception:
+            normalized.append(0.0)
+
+    if len(normalized) < color_count:
+        normalized += [0.0] * (color_count - len(normalized))
+
+    total = sum(normalized)
+    if total <= 0 and color_count:
+        return [1.0 / color_count] * color_count
+    if total <= 0:
+        return []
+    return [val / total for val in normalized]
+
+
+def _dominant_color_family(hexes: list[str], ratios: list[float]) -> tuple[str, dict[str, float]]:
+    """
+    按色卡中同一色系的总占比决定主色系。
+
+    Excel 里的 color_tags/color_family 可能有人工标错；检索时应以实际色卡
+    HEX + ratio 为准，尤其是用户用「黄色系 AND 清新」这类颜色标签筛选时。
+    """
+    if not hexes:
+        return "", {}
+
+    norm = _normalize_ratios(ratios, len(hexes))
+    weights: dict[str, float] = {}
+    order: list[str] = []
+
+    for hex_value, ratio in zip(hexes, norm):
+        try:
+            family = classify_hex_family(hex_value)
+        except Exception:
+            continue
+        if family not in weights:
+            weights[family] = 0.0
+            order.append(family)
+        weights[family] += ratio
+
+    if not weights:
+        return "", {}
+
+    dominant = max(order, key=lambda family: weights[family])
+    rounded_weights = {family: round(weight, 6) for family, weight in weights.items()}
+    return dominant, rounded_weights
 
 
 class ArtworkDataset:
     """
-    加载并缓存 artworks_with_palette_100 工作表数据。
+    加载并缓存作品数据（主表 + 色卡表合并）。
 
     属性：
-        records : list[dict]  -- 所有作品记录，每条都是字典
-        df      : DataFrame   -- 原始 DataFrame（供需要直接操作的场合使用）
+        records : list[dict]   所有作品记录
+        df      : DataFrame    合并后的 DataFrame
 
-    每条 record 包含的额外预处理字段（原表没有，这里派生）：
-        palette_hexes  : list[str]   -- 9 个主色 HEX（只含非空值）
-        palette_ratios : list[float] -- 对应占比（0~1）
-        searchable_text: str         -- 拼接后的全文搜索字段（小写）
-        palette_image_filename: str  -- 仅文件名（去掉绝对路径）
+    每条 record 额外字段：
+        palette_hexes           list[str]
+        palette_ratios          list[float]
+        searchable_text         str
+        palette_image_filename  str
     """
 
-    def __init__(self, excel_path: str | Path, sheet_name: str = _SHEET_NAME) -> None:
+    def __init__(
+        self,
+        excel_path: str | Path,
+        palette_path: str | Path | None = None,
+        sheet_name: str = _MAIN_SHEET,
+    ) -> None:
         self._path = Path(excel_path)
+        # 默认色卡文件与主文件同目录
+        if palette_path is None:
+            self._palette_path = self._path.parent / _PALETTE_FILE
+        else:
+            self._palette_path = Path(palette_path)
         self._sheet = sheet_name
         self._df: pd.DataFrame | None = None
         self._records: list[dict] | None = None
-
-    # ------------------------------------------------------------------
-    # 公共接口
-    # ------------------------------------------------------------------
 
     @property
     def df(self) -> pd.DataFrame:
         if self._df is None:
             self._load()
-        return self._df  # type: ignore[return-value]
+        return self._df  # type: ignore
 
     @property
     def records(self) -> list[dict]:
         if self._records is None:
             self._load()
-        return self._records  # type: ignore[return-value]
+        return self._records  # type: ignore
 
     def get_by_id(self, artwork_id: int | str) -> dict | None:
-        """根据 id 获取单条记录，找不到时返回 None。"""
         for rec in self.records:
             if str(rec["id"]) == str(artwork_id):
                 return rec
         return None
 
     def reload(self) -> None:
-        """强制重新从磁盘读取（文件更新后调用）。"""
         self._df = None
         self._records = None
         self._load()
-
-    # ------------------------------------------------------------------
-    # 内部加载
-    # ------------------------------------------------------------------
 
     def _load(self) -> None:
         if not self._path.exists():
             raise FileNotFoundError(f"找不到数据文件：{self._path}")
 
-        df = pd.read_excel(
-            str(self._path),
-            sheet_name=self._sheet,
-            dtype=str,          # 全部读成字符串，避免类型歧义
-        )
-        df = df.fillna("")
+        main_df = pd.read_excel(str(self._path), sheet_name=self._sheet, dtype=str).fillna("")
 
-        # 只保留已知字段；对缺失列填空
-        for col in _REQUIRED_COLS:
-            if col not in df.columns:
-                df[col] = ""
+        # 补全主表缺失列
+        for col in _MAIN_COLS:
+            if col not in main_df.columns:
+                main_df[col] = ""
 
-        self._df = df
+        # 加载色卡表（如果存在）
+        palette_df = None
+        if self._palette_path.exists():
+            try:
+                palette_df = pd.read_excel(
+                    str(self._palette_path), sheet_name=_PALETTE_SHEET, dtype=str
+                ).fillna("")
+                for col in _PALETTE_COLS:
+                    if col not in palette_df.columns:
+                        palette_df[col] = ""
+                # 只保留需要的列
+                keep_cols = ["id"] + [c for c in _PALETTE_COLS if c in palette_df.columns]
+                palette_df = palette_df[keep_cols]
+            except Exception as e:
+                print(f"[data_loader] 警告：加载色卡文件失败 ({e})，色卡数据将为空")
+                palette_df = None
 
-        records = []
-        for _, row in df.iterrows():
-            rec: dict[str, Any] = {col: _clean_str(row.get(col, "")) for col in _REQUIRED_COLS}
+        # 合并
+        if palette_df is not None:
+            merged = main_df.merge(palette_df, on="id", how="left", suffixes=("", "_pal"))
+            # 合并后色卡列可能带 _pal 后缀，做修正
+            for col in _PALETTE_COLS:
+                if col not in merged.columns and f"{col}_pal" in merged.columns:
+                    merged[col] = merged[f"{col}_pal"]
+        else:
+            merged = main_df
+            for col in _PALETTE_COLS:
+                merged[col] = ""
 
-            # 派生字段 1：调色盘 HEX + 占比
-            hexes, ratios = _extract_palette_hexes_ratios(rec)
+        merged = merged.fillna("")
+        self._df = merged
+
+        records: list[dict] = []
+        all_cols = _MAIN_COLS + _PALETTE_COLS
+        for _, row in merged.iterrows():
+            rec: dict[str, Any] = {col: _clean_str(row.get(col, "")) for col in all_cols}
+
+            hexes, ratios = _extract_palette(rec)
             rec["palette_hexes"] = hexes
             rec["palette_ratios"] = ratios
 
-            # 派生字段 2：全文检索字段（合并所有文本）
+            dominant_family, family_weights = _dominant_color_family(hexes, ratios)
+            rec["dominant_color_family"] = dominant_family
+            rec["color_family_weights"] = family_weights
+            if dominant_family:
+                rec["original_color_tags"] = rec.get("color_tags", "")
+                rec["original_color_family"] = rec.get("color_family", "")
+                rec["color_tags"] = dominant_family
+                rec["color_family"] = dominant_family
+
             text_parts = [
-                rec["title"],
-                rec["artist"],
-                rec["year"],
-                rec["culture"],
-                rec["classification"],
-                rec["medium"],
-                rec["color_tags"],
-                rec["emotion_tags"],
-                rec["style_tags"],
-                rec["use_tags"],
-                rec["color_tags_cn"],
-                rec["color_chinese_names"],
-                rec["overall_tone"],
-                rec["color_family"],
+                rec["title"], rec["artist"], rec["year"], rec["culture"],
+                rec["classification"], rec["medium"],
+                rec["color_tags"], rec["emotion_tags"], rec["style_tags"], rec["use_tags"],
+                rec.get("color_tags_cn", ""), rec.get("color_chinese_names", ""),
+                rec.get("overall_tone", ""), rec.get("color_family", ""),
             ]
             rec["searchable_text"] = " ".join(p for p in text_parts if p).lower()
 
-            # 派生字段 3：只保留色卡图片文件名（去掉本机绝对路径）
             raw_path = rec.get("palette_image_path", "")
-            if raw_path:
-                rec["palette_image_filename"] = Path(raw_path).name
-            else:
-                rec["palette_image_filename"] = rec.get("palette_image_file", "")
+            rec["palette_image_filename"] = Path(raw_path).name if raw_path else rec.get("palette_image_file", "")
 
             records.append(rec)
 

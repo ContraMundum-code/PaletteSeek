@@ -37,10 +37,12 @@ try:
     from .data_loader import ArtworkDataset
     from .result_formatter import format_card, format_results_for_display
     from .search_engine import SearchEngine
+    from .query_processor import init_processor
 except ImportError:
     from data_loader import ArtworkDataset
     from result_formatter import format_card, format_results_for_display
     from search_engine import SearchEngine
+    from query_processor import init_processor
 
 
 class PaletteSeek:
@@ -64,6 +66,8 @@ class PaletteSeek:
 
         self._dataset = ArtworkDataset(self._excel_path)
         self._engine  = SearchEngine(self._dataset)
+        # 从 Excel 加载同义词/Query Mapping 表
+        init_processor(self._excel_path)
 
     # ------------------------------------------------------------------
     # 检索接口
