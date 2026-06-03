@@ -203,3 +203,13 @@ streamlit run 前端/app.py
 Developed as part of the Information Storage and Retrieval course group project.
 
 PaletteSeek © 2026
+
+## Screenshots
+
+### Home Page — Artwork Exploration
+
+![Home Page](docs/home1.png)
+
+### Home Page — Palette Discovery
+
+![Home Page](docs/home2.png)
