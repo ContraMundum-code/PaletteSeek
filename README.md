@@ -109,26 +109,6 @@ Retrieve palettes matching desired brand personalities such as:
 ---
 
 ## System Architecture
-
-```text
-Data Collection
-        │
-        ▼
-Metadata Storage
-        │
-        ▼
-Image Processing
-(Color Extraction)
-        │
-        ▼
-Tag Organization
-        │
-        ▼
-Retrieval & Ranking
-        │
-        ▼
-Streamlit Interface
-```
 ```mermaid
 flowchart LR
 
