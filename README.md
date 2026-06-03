@@ -130,34 +130,25 @@ Retrieval & Ranking
 Streamlit Interface
 ```
 ```mermaid
-flowchart TD
+flowchart LR
 
-subgraph Data Layer
-A[Artwork Dataset]
-end
+A[Artwork Images] --> B[Color Extraction]
 
-subgraph Processing Layer
-B[Color Extraction]
-C[Tag Generation]
-end
+B --> C[Dominant Palette]
+B --> D[Color Ratios]
 
-subgraph Retrieval Layer
-D[Color Similarity Search]
-E[Keyword Search]
-F[Hybrid Ranking]
-end
+C --> E[Tag Generation]
+D --> E
 
-subgraph Application Layer
-G[Streamlit Interface]
-end
+E --> F[Retrieval Engine]
 
-A --> B
-B --> C
-C --> D
-C --> E
-D --> F
-E --> F
-F --> G
+F --> G[Color Search]
+F --> H[Keyword Search]
+F --> I[Hybrid Search]
+
+G --> J[Streamlit UI]
+H --> J
+I --> J
 ```
 ---
 
