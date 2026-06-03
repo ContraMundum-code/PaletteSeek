@@ -388,14 +388,23 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 
 .ps-result-image {
+    position: relative;
     width: 100%;
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 1 / 1.16;
     height: auto;
-    margin-bottom: 0.72rem;
-    border-radius: 8px;
+    margin-bottom: 0.62rem;
+    border-radius: 9px;
     overflow: hidden;
     background: linear-gradient(135deg, rgba(36,95,90,0.12), rgba(181,82,61,0.08));
-    border: 1px solid rgba(21,25,24,0.10);
+    border: 1px solid rgba(21,25,24,0.08);
+    box-shadow:
+        0 18px 32px rgba(31, 34, 31, 0.16),
+        0 2px 0 rgba(255, 253, 248, 0.76) inset;
+    transform-origin: center bottom;
+    transition:
+        transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1),
+        box-shadow 520ms ease,
+        filter 520ms ease;
 }
 
 .ps-result-image img {
@@ -406,9 +415,32 @@ html, body, [data-testid="stAppViewContainer"] {
     transition: transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1), filter 520ms ease;
 }
 
-.ps-result-image:hover img {
-    transform: scale(1.045);
-    filter: saturate(1.06) contrast(1.03);
+.ps-result-image::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        linear-gradient(180deg, rgba(24, 36, 51, 0.02), rgba(24, 36, 51, 0.58)),
+        radial-gradient(circle at 18% 12%, rgba(255, 253, 248, 0.36), transparent 24%);
+    opacity: 0;
+    transition: opacity 360ms ease;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-image {
+    transform: translateY(-22px) scale(1.035) rotate(-0.35deg);
+    box-shadow:
+        0 34px 58px rgba(31, 34, 31, 0.24),
+        0 0 0 1px rgba(255, 253, 248, 0.42) inset;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-image img {
+    transform: scale(1.055);
+    filter: saturate(1.09) contrast(1.04);
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-image::after {
+    opacity: 1;
 }
 
 .ps-result-title {
@@ -416,7 +448,7 @@ html, body, [data-testid="stAppViewContainer"] {
     font-weight: 900;
     line-height: 1.35;
     color: var(--ps-ink);
-    min-height: 2.7em;
+    min-height: 2.55em;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -444,6 +476,41 @@ html, body, [data-testid="stAppViewContainer"] {
     color: var(--ps-muted);
     font-size: 0.76rem;
     font-weight: 700;
+}
+
+.ps-result-cover-caption {
+    position: absolute;
+    left: 0.85rem;
+    right: 0.85rem;
+    bottom: 0.78rem;
+    z-index: 2;
+    color: #fffdf8;
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 320ms ease, transform 320ms ease;
+    text-shadow: 0 8px 22px rgba(0, 0, 0, 0.42);
+}
+
+.ps-result-cover-title {
+    font-size: 1rem;
+    font-weight: 900;
+    line-height: 1.25;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ps-result-cover-meta {
+    margin-top: 0.3rem;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    color: rgba(255, 253, 248, 0.82);
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-cover-caption {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .ps-rank-mark {
@@ -486,12 +553,42 @@ html, body, [data-testid="stAppViewContainer"] {
     overflow: hidden;
 }
 
+.ps-result-overlay-note {
+    opacity: 0;
+    transform: translateY(8px);
+    max-height: 0;
+    overflow: hidden;
+    transition: opacity 280ms ease, transform 280ms ease, max-height 280ms ease;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-overlay-note {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 5.5rem;
+}
+
 .ps-result-palette {
     margin: 0.1rem 0 0.78rem 0;
 }
 
 .ps-card-chip-space {
-    height: 1.35rem;
+    height: 0;
+}
+
+.ps-result-pin {
+    position: absolute;
+    top: 0.68rem;
+    left: 0.68rem;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.28rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 253, 248, 0.92);
+    color: #174f58;
+    font-size: 0.72rem;
+    font-weight: 900;
+    box-shadow: 0 10px 22px rgba(31, 34, 31, 0.16);
 }
 
 .ps-card-footer-note {
@@ -518,6 +615,43 @@ html, body, [data-testid="stAppViewContainer"] {
     color: var(--ps-muted);
     font-size: 0.80rem;
     line-height: 1.45;
+}
+
+.ps-shelf-rail {
+    position: relative;
+    height: 3.1rem;
+    margin: -0.2rem 0 1.7rem 0;
+    pointer-events: none;
+}
+
+.ps-shelf-rail::before {
+    content: "";
+    position: absolute;
+    left: 1.5%;
+    right: 1.5%;
+    top: 0.68rem;
+    height: 0.58rem;
+    border-radius: 999px;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.95), rgba(216, 214, 205, 0.92)),
+        linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+    box-shadow:
+        0 2px 0 rgba(255, 253, 248, 0.98) inset,
+        0 14px 28px rgba(31, 34, 31, 0.23),
+        0 32px 44px rgba(31, 34, 31, 0.12);
+}
+
+.ps-shelf-rail::after {
+    content: "";
+    position: absolute;
+    left: 7%;
+    right: 7%;
+    top: 1.14rem;
+    height: 1.3rem;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(31, 34, 31, 0.28), transparent 68%);
+    filter: blur(10px);
+    opacity: 0.72;
 }
 
 .ps-palette {
@@ -1083,12 +1217,43 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover {
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) {
     transform-origin: center 72%;
     will-change: transform, opacity, filter;
+    position: relative;
+    overflow: visible;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    padding: 0.45rem 0.35rem 0.25rem 0.35rem;
     animation: psCardFloatReveal 0.72s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover {
-    transform: translateY(-7px) scale(1.012);
-    box-shadow: 0 24px 52px rgba(31, 34, 31, 0.16);
+    transform: translateY(-8px) scale(1.012);
+    border-color: transparent;
+    box-shadow: none;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .ps-card-footer-note {
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 260ms ease, transform 260ms ease;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-card-footer-note {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton > button {
+    background: rgba(255, 253, 248, 0.94);
+    box-shadow: 0 14px 26px rgba(31, 34, 31, 0.14);
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton > button:hover {
+    background: #182433;
+    color: #fffdf8;
+    border-color: #182433;
 }
 
 @supports (animation-timeline: view()) {
@@ -1709,13 +1874,23 @@ def render_result_card(card: dict, selected: bool = False, min_score: float = 0.
     with st.container(border=True):
         st.markdown('<span class="ps-result-card-sentinel"></span>', unsafe_allow_html=True)
         if selected:
-            st.markdown('<span class="ps-chip">正在查看</span>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="ps-card-chip-space"></div>', unsafe_allow_html=True)
+            st.markdown('<span class="ps-result-pin">正在查看</span>', unsafe_allow_html=True)
 
         if image_src:
             st.markdown(
-                f'<div class="ps-result-image"><img src="{image_src}" alt="{card.get("title", "未命名作品")}" /></div>',
+                f"""
+                <div class="ps-result-image">
+                    <img src="{image_src}" alt="{card.get("title", "未命名作品")}" />
+                    <div class="ps-result-cover-caption">
+                        <div class="ps-result-cover-title">{card.get("title", "未命名作品")}</div>
+                        <div class="ps-result-cover-meta">
+                            {card.get("artist", "未知作者")} · {card.get("year", "未知年份")}
+                            <br />
+                            {card.get("overall_tone", "未标注色调")} · {card.get("color_family", "未标注色系")}
+                        </div>
+                    </div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
         else:
@@ -1739,11 +1914,11 @@ def render_result_card(card: dict, selected: bool = False, min_score: float = 0.
             <div class="ps-result-title">{card.get("title", "未命名作品")}</div>
             <div class="ps-result-meta">
                 {card.get("artist", "未知作者")} · {card.get("year", "未知年份")}
-                <br />
-                {card.get("overall_tone", "未标注色调")} · {card.get("color_family", "未标注色系")}
             </div>
-            <div class="ps-result-reason">
-                {reason or "暂无推荐理由。"}
+            <div class="ps-result-overlay-note">
+                <div class="ps-result-reason">
+                    {reason or "暂无推荐理由。"}
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1788,23 +1963,27 @@ def render_results(results: list[dict]) -> None:
 
     count = len(results)
     if count >= 25:
-        columns = st.columns(5, gap="large")
+        column_count = 5
     elif count >= 13:
-        columns = st.columns(4, gap="large")
+        column_count = 4
     elif count >= 7:
-        columns = st.columns(3, gap="large")
+        column_count = 3
     else:
-        columns = st.columns(2, gap="large")
+        column_count = 2
 
     selected_id = str(st.session_state.get("selected_card_id") or "")
-    for idx, card in enumerate(results):
-        with columns[idx % len(columns)]:
-            render_result_card(
-                card,
-                selected=str(card.get("id")) == selected_id,
-                min_score=min_score,
-                max_score=max_score,
-            )
+    for row_start in range(0, len(results), column_count):
+        row_cards = results[row_start : row_start + column_count]
+        row_columns = st.columns(column_count, gap="large")
+        for idx, card in enumerate(row_cards):
+            with row_columns[idx]:
+                render_result_card(
+                    card,
+                    selected=str(card.get("id")) == selected_id,
+                    min_score=min_score,
+                    max_score=max_score,
+                )
+        st.markdown('<div class="ps-shelf-rail"></div>', unsafe_allow_html=True)
 
 
 def render_detail_panel(card: dict | None) -> None:

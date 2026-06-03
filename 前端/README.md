@@ -1,6 +1,6 @@
 # PaletteSeek 前端
 
-这是 PaletteSeek 项目的 `Streamlit` 单页前端。
+这是 PaletteSeek 项目的 `Streamlit` 单页前端。前端会直接调用 `PaletteSeek`，不额外增加 API 层。
 
 当前前端已经完成的核心主流程包括：
 
@@ -85,7 +85,3 @@ streamlit run 前端/app.py     //运行
 - 后端数据和代码仍放在 `后端/paletteseek_backend/`
 - 前端页面入口是 `前端/app.py`
 - 色卡图片默认从 `后端/paletteseek_backend/color_cards/` 读取
-
-## 说明
-
-前端会直接调用 `PaletteSeek`，不额外增加 API 层。
