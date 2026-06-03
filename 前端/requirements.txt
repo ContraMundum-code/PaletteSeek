@@ -1,0 +1,1 @@
+-r ../后端/paletteseek_backend/requirements.txt
