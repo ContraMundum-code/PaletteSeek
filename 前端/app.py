@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime
+import hashlib
 import html
+from io import BytesIO
 import json
 import sys
 from pathlib import Path
@@ -9,6 +12,7 @@ from typing import Any
 
 import streamlit.components.v1 as components
 import streamlit as st
+from PIL import Image
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -17,6 +21,9 @@ BACKEND_PACKAGE_DIR = BACKEND_DIR / "paletteseek_backend"
 EXCEL_PATH = BACKEND_PACKAGE_DIR / "数据.xlsx"
 COLOR_CARDS_DIR = BACKEND_PACKAGE_DIR / "color_cards"
 REPORTS_DIR = BACKEND_PACKAGE_DIR / "reports"
+SUBMISSIONS_FILE = BACKEND_PACKAGE_DIR / "submissions.xlsx"
+SUBMISSIONS_IMAGES_DIR = BACKEND_PACKAGE_DIR / "submissions_images"
+SUBMISSION_REPORTS_DIR = BACKEND_PACKAGE_DIR / "submission_reports"
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -24,12 +31,30 @@ if str(BACKEND_DIR) not in sys.path:
 BACKEND_IMPORT_ERROR: Exception | None = None
 try:  # noqa: E402
     from paletteseek_backend import PaletteSeek
-    from paletteseek_backend.color_utils import is_valid_hex
+    from paletteseek_backend.color_utils import (
+        classify_hex_family,
+        is_valid_hex,
+        palette_color_similarity,
+        rgb_to_hex,
+    )
+    from paletteseek_backend.result_formatter import generate_usage_suggestion
 except Exception as exc:  # pragma: no cover - runtime guard for missing deps
     PaletteSeek = Any  # type: ignore[assignment]
 
     def is_valid_hex(_: str) -> bool:
         return False
+
+    def rgb_to_hex(r: int, g: int, b: int) -> str:
+        return "#{:02X}{:02X}{:02X}".format(r, g, b)
+
+    def classify_hex_family(_: str) -> str:
+        return "未标注色系"
+
+    def palette_color_similarity(_: str, __: list[str], ___: list[float]) -> float:
+        return 0.0
+
+    def generate_usage_suggestion(_: dict) -> dict[str, str]:
+        return {}
 
     BACKEND_IMPORT_ERROR = exc
 
@@ -405,6 +430,9 @@ html, body, [data-testid="stAppViewContainer"] {
 }
 
 .ps-section-title {
+    position: relative;
+    overflow: visible;
+    z-index: 40;
     margin: 1.2rem 0 0.45rem 0;
     font-size: 1.08rem;
     font-weight: 900;
@@ -414,6 +442,71 @@ html, body, [data-testid="stAppViewContainer"] {
 
 .ps-section-title span {
     color: var(--ps-accent);
+}
+
+.ps-section-help {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+    z-index: 60;
+}
+
+.ps-section-help-dot {
+    width: 1.35rem;
+    height: 1.35rem;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    border: 1px solid rgba(36, 95, 90, 0.28);
+    background: rgba(255, 253, 248, 0.76);
+    color: var(--ps-jade);
+    font-family: "Cormorant Garamond", "Georgia", serif;
+    font-size: 0.94rem;
+    font-weight: 900;
+    cursor: help;
+    box-shadow: 0 8px 18px rgba(31, 34, 31, 0.08);
+    transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.ps-section-help:hover .ps-section-help-dot {
+    transform: translateY(-2px) rotate(4deg);
+    background: rgba(236, 250, 248, 0.94);
+    box-shadow: 0 12px 28px rgba(36, 95, 90, 0.14);
+}
+
+.ps-section-help-panel {
+    position: absolute;
+    top: 1.95rem;
+    left: 0;
+    width: min(28rem, calc(100vw - 3rem));
+    border-radius: 16px;
+    border: 1px solid rgba(36, 95, 90, 0.18);
+    background:
+        linear-gradient(135deg, rgba(255, 253, 248, 0.96), rgba(236, 250, 248, 0.88)),
+        radial-gradient(circle at 92% 12%, rgba(192, 138, 69, 0.16), transparent 36%);
+    color: var(--ps-muted);
+    box-shadow: 0 24px 52px rgba(31, 34, 31, 0.16);
+    padding: 0.82rem 0.92rem;
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(0, -6px) scale(0.98);
+    transition: opacity 180ms ease, visibility 180ms ease, transform 180ms ease;
+    backdrop-filter: blur(12px) saturate(1.12);
+    -webkit-backdrop-filter: blur(12px) saturate(1.12);
+    pointer-events: none;
+    z-index: 999;
+    font-size: 0.82rem;
+    line-height: 1.62;
+    font-weight: 700;
+}
+
+.ps-section-help:hover .ps-section-help-panel {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(0, 0) scale(1);
+    pointer-events: auto;
 }
 
 .ps-card {
@@ -712,6 +805,122 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
     color: var(--ps-muted);
     font-size: 0.80rem;
     line-height: 1.45;
+}
+
+.ps-submission-intro {
+    margin: 0.2rem 0 1rem 0;
+    border-radius: 18px;
+    border: 1px solid rgba(36, 95, 90, 0.14);
+    background:
+        linear-gradient(135deg, rgba(255, 253, 248, 0.82), rgba(226, 243, 239, 0.38)),
+        radial-gradient(circle at 88% 22%, rgba(192, 138, 69, 0.16), transparent 32%);
+    padding: 1rem 1.05rem;
+    color: var(--ps-muted);
+    line-height: 1.7;
+    box-shadow: 0 14px 34px rgba(31, 34, 31, 0.06);
+}
+
+.ps-upload-scroll-sentinel {
+    display: none;
+}
+
+div[data-testid="stElementContainer"]:has(#toggle_upload_form_btn),
+div[data-testid="stButton"]:has(#toggle_upload_form_btn) {
+    position: relative;
+    z-index: 1;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-upload-scroll-sentinel) {
+    border: 0 !important;
+    outline: 0 !important;
+    border-radius: 22px !important;
+    background:
+        linear-gradient(180deg, rgba(126, 86, 48, 0.92) 0 0.72rem, transparent 0.72rem),
+        linear-gradient(0deg, rgba(126, 86, 48, 0.88) 0 0.72rem, transparent 0.72rem),
+        linear-gradient(135deg, rgba(255, 253, 248, 0.88), rgba(246, 237, 218, 0.74));
+    box-shadow:
+        0 24px 54px rgba(31, 34, 31, 0.12),
+        0 1px 0 rgba(255, 253, 248, 0.72) inset;
+    padding: 1.55rem 1.05rem 1.25rem 1.05rem !important;
+    animation: psScrollUnfurl 0.72s cubic-bezier(0.19, 1, 0.22, 1) both;
+    transform-origin: center top;
+}
+
+.ps-upload-mini-note {
+    margin: 0.34rem 0 0.85rem 0;
+    color: rgba(104, 113, 111, 0.82);
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.ps-submission-card-sentinel {
+    display: none;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel) {
+    position: relative;
+    overflow: visible;
+    border: 0 !important;
+    outline: 0 !important;
+    border-radius: 22px !important;
+    background:
+        linear-gradient(145deg, rgba(255, 253, 248, 0.58), rgba(225, 210, 181, 0.24)),
+        radial-gradient(circle at 22% 10%, rgba(255, 255, 255, 0.78), transparent 34%);
+    box-shadow:
+        0 22px 42px rgba(31, 34, 31, 0.10),
+        0 9px 22px rgba(143, 100, 45, 0.08),
+        0 1px 0 rgba(255, 253, 248, 0.74) inset;
+    padding: 1.05rem !important;
+    transition: transform 280ms cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 280ms ease;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel):hover {
+    transform: translateY(-7px) scale(1.012);
+    box-shadow:
+        0 30px 58px rgba(31, 34, 31, 0.15),
+        0 14px 28px rgba(36, 95, 90, 0.10),
+        0 1px 0 rgba(255, 253, 248, 0.86) inset;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel)::before,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel)::after {
+    display: none !important;
+}
+
+.ps-submission-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.48rem 0 0.58rem 0;
+    padding: 0.32rem 0.58rem;
+    border-radius: 999px;
+    background: rgba(36, 95, 90, 0.10);
+    color: var(--ps-jade);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.ps-submission-title {
+    margin-top: 0.58rem;
+    color: var(--ps-ink);
+    font-size: 1.02rem;
+    line-height: 1.35;
+    font-weight: 900;
+}
+
+.ps-submission-meta {
+    margin-top: 0.25rem;
+    color: var(--ps-muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+    font-weight: 700;
+}
+
+.ps-submission-note {
+    margin-top: 0.52rem;
+    color: rgba(104, 113, 111, 0.82);
+    font-size: 0.78rem;
+    line-height: 1.52;
 }
 
 .ps-shelf-rail {
@@ -1515,7 +1724,11 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) {
 div[data-testid="stElementContainer"]:has(.ps-result-card-sentinel),
 div[data-testid="stVerticalBlock"]:has(.ps-result-card-sentinel),
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel),
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) > div {
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) > div,
+div[data-testid="stElementContainer"]:has(.ps-submission-card-sentinel),
+div[data-testid="stVerticalBlock"]:has(.ps-submission-card-sentinel),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel) > div {
     border: 0 !important;
     outline: 0 !important;
 }
@@ -1561,40 +1774,52 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-selected)::before
     box-shadow: 0 0 22px rgba(127, 184, 173, 0.55);
 }
 
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton {
-    position: absolute;
-    top: 0.9rem;
-    left: 0.82rem;
-    right: 0.82rem;
-    aspect-ratio: 1 / 1.16;
-    z-index: 6;
-    opacity: 1;
-    transform: none;
-}
-
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton {
-    opacity: 1;
-    transform: none;
-}
-
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton > button {
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton > button,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel) .stButton > button,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) div[data-testid="stButton"] button,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel) div[data-testid="stButton"] button {
     width: 100%;
-    height: 100%;
-    min-height: 0;
-    padding: 0;
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    color: transparent !important;
-    font-size: 0;
+    min-height: 2.45rem;
+    padding: 0.42rem 0.88rem;
+    border-radius: 999px !important;
+    border: 1px solid rgba(36, 95, 90, 0.20) !important;
+    background:
+        linear-gradient(135deg, rgba(255, 253, 248, 0.70), rgba(236, 250, 248, 0.46)) !important;
+    color: #174f58 !important;
+    font-size: 0.88rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    box-shadow:
+        0 12px 26px rgba(31, 34, 31, 0.08),
+        0 1px 0 rgba(255, 253, 248, 0.82) inset !important;
+    backdrop-filter: blur(11px) saturate(1.12);
+    -webkit-backdrop-filter: blur(11px) saturate(1.12);
     cursor: pointer;
+    transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
 }
 
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton > button:hover {
-    background: transparent !important;
-    color: transparent !important;
-    border-color: transparent !important;
-    box-shadow: none !important;
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton > button:hover,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel):hover .stButton > button:hover,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover div[data-testid="stButton"] button:hover,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel):hover div[data-testid="stButton"] button:hover {
+    transform: translateY(-3px) scale(1.025);
+    background:
+        linear-gradient(135deg, rgba(236, 250, 248, 0.92), rgba(255, 253, 248, 0.72)) !important;
+    color: #0f4d57 !important;
+    border-color: rgba(31, 111, 122, 0.42) !important;
+    box-shadow:
+        0 18px 34px rgba(31, 111, 122, 0.14),
+        0 1px 0 rgba(255, 253, 248, 0.90) inset !important;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton > button:active,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel) .stButton > button:active,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) div[data-testid="stButton"] button:active,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel) div[data-testid="stButton"] button:active {
+    transform: translateY(1px) scale(0.985);
+    box-shadow:
+        0 8px 18px rgba(31, 111, 122, 0.10),
+        0 2px 8px rgba(31, 34, 31, 0.08) inset !important;
 }
 
 @supports (animation-timeline: view()) {
@@ -1863,7 +2088,7 @@ def render_controls(filter_options: dict[str, list[str]]) -> dict[str, str]:
         top_k = st.number_input(
             "最大结果数量",
             min_value=1,
-            value=int(st.session_state.get("top_k", 12)),
+            value=int(st.session_state.get("top_k", 30)),
             step=1,
             help="设置本次检索最多展示多少条结果；实际结果可能少于这个数量。",
             key="top_k",
@@ -1985,6 +2210,25 @@ def close_report() -> None:
     st.session_state.show_report = False
 
 
+def select_submission(submission_id: str) -> None:
+    st.session_state.selected_submission_id = str(submission_id)
+    st.session_state.scroll_to_submission_detail = True
+
+
+def toggle_submission_report(submission_id: str) -> None:
+    st.session_state.submission_report_id = str(submission_id)
+    st.session_state.show_submission_report = True
+    st.session_state.scroll_to_submission_detail = True
+
+
+def close_submission_report() -> None:
+    st.session_state.show_submission_report = False
+
+
+def toggle_upload_form() -> None:
+    st.session_state.show_upload_form = not bool(st.session_state.get("show_upload_form"))
+
+
 def activate_detail_scroll() -> None:
     if st.session_state.get("scroll_to_detail"):
         st.session_state.scroll_trigger_nonce = int(st.session_state.get("scroll_trigger_nonce", 0)) + 1
@@ -1992,11 +2236,18 @@ def activate_detail_scroll() -> None:
         st.session_state.scroll_to_detail = False
 
 
+def activate_submission_detail_scroll() -> None:
+    if st.session_state.get("scroll_to_submission_detail"):
+        st.session_state.submission_scroll_nonce = int(st.session_state.get("submission_scroll_nonce", 0)) + 1
+        scroll_to_anchor("ps-submission-detail-anchor", "submission_scroll_nonce")
+        st.session_state.scroll_to_submission_detail = False
+
+
 def reset_filters() -> None:
     st.session_state.selected_card_id = None
     st.session_state.query_text = ""
     st.session_state.hex_text = "#1E3A8A"
-    st.session_state.top_k = 12
+    st.session_state.top_k = 30
     st.session_state.mode_select = "混合检索"
     st.session_state.filter_overall_tone = "全部"
     st.session_state.filter_color_family = "全部"
@@ -2008,6 +2259,11 @@ def reset_filters() -> None:
 
 def get_report_path(card_id: str) -> Path:
     return REPORTS_DIR / f"{card_id}_palette_report.png"
+
+
+def get_submission_report_path(submission_id: str) -> Path:
+    safe_id = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in str(submission_id))
+    return SUBMISSION_REPORTS_DIR / f"{safe_id}_palette_report.png"
 
 
 def ensure_report_image(card: dict) -> Path | None:
@@ -2030,6 +2286,22 @@ def ensure_report_image(card: dict) -> Path | None:
         return None
 
 
+def ensure_submission_report_image(card: dict) -> Path | None:
+    report_path = get_submission_report_path(str(card.get("submission_id") or card.get("id") or ""))
+    if report_path.exists():
+        return report_path
+
+    try:
+        from paletteseek_backend import render_palette_report
+    except Exception:
+        return None
+
+    try:
+        return render_palette_report(card, report_path)
+    except Exception:
+        return None
+
+
 def image_to_data_uri(path: Path | None) -> str | None:
     if path is None or not path.exists():
         return None
@@ -2038,6 +2310,359 @@ def image_to_data_uri(path: Path | None) -> str | None:
         return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
     except Exception:
         return None
+
+
+def parse_json_list(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def normalize_uploaded_image(image: Image.Image) -> Image.Image:
+    if image.mode in ("RGBA", "LA"):
+        background = Image.new("RGB", image.size, "#FFFFFF")
+        alpha = image.getchannel("A") if image.mode == "RGBA" else image.getchannel("A")
+        background.paste(image.convert("RGBA"), mask=alpha)
+        return background
+    return image.convert("RGB")
+
+
+def extract_palette_from_image(image: Image.Image, max_colors: int = 9) -> tuple[list[str], list[float]]:
+    work = normalize_uploaded_image(image)
+    resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+    work.thumbnail((420, 420), resampling)
+
+    quantize_enum = getattr(Image, "Quantize", None)
+    quantize_method = getattr(quantize_enum, "MEDIANCUT", 0) if quantize_enum else 0
+    quantized = work.quantize(colors=max_colors, method=quantize_method)
+    colors = quantized.getcolors(work.size[0] * work.size[1]) or []
+    colors.sort(reverse=True, key=lambda item: item[0])
+
+    palette = quantized.getpalette() or []
+    total = sum(count for count, _ in colors) or 1
+    hexes: list[str] = []
+    ratios: list[float] = []
+    for count, palette_index in colors[:max_colors]:
+        base = int(palette_index) * 3
+        if base + 2 >= len(palette):
+            continue
+        hex_value = rgb_to_hex(palette[base], palette[base + 1], palette[base + 2])
+        if hex_value in hexes:
+            continue
+        hexes.append(hex_value)
+        ratios.append(round(count / total, 6))
+
+    ratio_total = sum(ratios)
+    if ratio_total > 0:
+        ratios = [round(ratio / ratio_total, 6) for ratio in ratios]
+    return hexes, ratios
+
+
+def infer_overall_tone(hexes: list[str], ratios: list[float]) -> str:
+    if not hexes:
+        return "未标注色调"
+
+    import colorsys
+
+    weights = ratios if len(ratios) == len(hexes) and sum(ratios) > 0 else [1 / len(hexes)] * len(hexes)
+    total = sum(weights) or 1
+    brightness = 0.0
+    saturation = 0.0
+    for hex_value, weight in zip(hexes, weights):
+        clean = hex_value.lstrip("#")
+        try:
+            r, g, b = int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16)
+        except Exception:
+            continue
+        _, sat, val = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        brightness += val * weight
+        saturation += sat * weight
+    brightness /= total
+    saturation /= total
+
+    if brightness < 0.34:
+        return "深色调"
+    if brightness > 0.74:
+        return "浅色调"
+    if saturation < 0.24:
+        return "低饱和色调"
+    return "中明度色调"
+
+
+def dominant_family_from_palette(hexes: list[str], ratios: list[float]) -> str:
+    if not hexes:
+        return "未标注色系"
+    weights = ratios if len(ratios) == len(hexes) and sum(ratios) > 0 else [1 / len(hexes)] * len(hexes)
+    family_weights: dict[str, float] = {}
+    family_order: list[str] = []
+    for hex_value, weight in zip(hexes, weights):
+        family = classify_hex_family(hex_value)
+        if family not in family_weights:
+            family_weights[family] = 0.0
+            family_order.append(family)
+        family_weights[family] += float(weight)
+    return max(family_order, key=lambda item: family_weights[item]) if family_order else "未标注色系"
+
+
+def submission_image_path(raw_path: Any) -> Path | None:
+    text = str(raw_path or "").strip()
+    if not text:
+        return None
+    path = Path(text)
+    if not path.is_absolute():
+        path = BACKEND_PACKAGE_DIR / path
+    return path
+
+
+def load_submissions() -> list[dict]:
+    if not SUBMISSIONS_FILE.exists():
+        return []
+    try:
+        import pandas as pd
+
+        df = pd.read_excel(SUBMISSIONS_FILE, dtype=str).fillna("")
+    except Exception:
+        return []
+
+    records: list[dict] = []
+    for _, row in df.iterrows():
+        rec = {str(key): str(value) for key, value in row.to_dict().items()}
+        rec["palette_hexes"] = [str(item) for item in parse_json_list(rec.get("palette_hexes"))]
+        rec["palette_ratios"] = [
+            float(item) for item in parse_json_list(rec.get("palette_ratios")) if str(item).strip()
+        ]
+        rec["id"] = rec.get("submission_id", "")
+        rec["source_type"] = "user_submission"
+        local_image_path = submission_image_path(rec.get("image_path"))
+        rec["local_image_path"] = str(local_image_path or "")
+        rec["image_url"] = str(local_image_path or "")
+        rec["color_tags"] = rec.get("color_family", "")
+        rec["emotion_tags"] = rec.get("tags", "")
+        rec["style_tags"] = rec.get("classification", "")
+        rec["use_tags"] = rec.get("usage_note", "")
+        rec["color_names"] = [f"Color {idx:02d}" for idx, _ in enumerate(rec["palette_hexes"], start=1)]
+        rec["usage_suggestion"] = generate_usage_suggestion(rec)
+        records.append(rec)
+    records.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    return records
+
+
+def save_submission(uploaded_file: Any, fields: dict[str, str]) -> tuple[bool, str]:
+    title = fields.get("title", "").strip()
+    if not uploaded_file:
+        return False, "请先上传一张 JPG 或 PNG 图片。"
+    if not title:
+        return False, "请至少填写作品标题，方便在开放区中识别。"
+
+    raw_bytes = uploaded_file.getvalue()
+    try:
+        image = Image.open(BytesIO(raw_bytes))
+        image.verify()
+        image = Image.open(BytesIO(raw_bytes))
+    except Exception:
+        return False, "图片无法读取，请更换 JPG 或 PNG 文件。"
+
+    hexes, ratios = extract_palette_from_image(image)
+    if not hexes:
+        return False, "暂时无法从这张图片中提取有效调色盘。"
+
+    SUBMISSIONS_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = Path(uploaded_file.name or "").suffix.lower()
+    if suffix not in (".jpg", ".jpeg", ".png", ".webp"):
+        suffix = ".png"
+    digest = hashlib.sha1(raw_bytes).hexdigest()[:10]
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    submission_id = f"user_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{digest}"
+    image_filename = f"{submission_id}{suffix}"
+    image_path = SUBMISSIONS_IMAGES_DIR / image_filename
+    image_path.write_bytes(raw_bytes)
+
+    record = {
+        "submission_id": submission_id,
+        "id": submission_id,
+        "title": title,
+        "artist": fields.get("artist", "").strip() or "用户未填写",
+        "year": fields.get("year", "").strip() or "未知年份",
+        "culture": fields.get("culture", "").strip() or "用户上传",
+        "classification": fields.get("classification", "").strip() or "视觉作品",
+        "medium": fields.get("medium", "").strip() or "用户上传图片",
+        "source_url": fields.get("source_url", "").strip(),
+        "tags": fields.get("tags", "").strip(),
+        "usage_note": fields.get("usage_note", "").strip(),
+        "image_path": str(Path("submissions_images") / image_filename),
+        "palette_hexes": json.dumps(hexes, ensure_ascii=False),
+        "palette_ratios": json.dumps(ratios, ensure_ascii=False),
+        "overall_tone": infer_overall_tone(hexes, ratios),
+        "color_family": dominant_family_from_palette(hexes, ratios),
+        "created_at": created_at,
+        "source_type": "user_submission",
+    }
+
+    try:
+        import pandas as pd
+
+        existing = pd.read_excel(SUBMISSIONS_FILE, dtype=str).fillna("") if SUBMISSIONS_FILE.exists() else pd.DataFrame()
+        updated = pd.concat([existing, pd.DataFrame([record])], ignore_index=True)
+        updated.to_excel(SUBMISSIONS_FILE, index=False)
+    except Exception as exc:
+        if image_path.exists():
+            image_path.unlink()
+        return False, f"保存失败：{exc}"
+
+    return True, "作品已保存到开放区，不会进入正式馆藏检索结果。"
+
+
+def build_submission_filter_options(submissions: list[dict]) -> dict[str, list[str]]:
+    options: dict[str, list[str]] = {}
+    for field in ("overall_tone", "color_family", "culture", "classification"):
+        values = sorted({str(item.get(field, "")).strip() for item in submissions if str(item.get(field, "")).strip()})
+        options[field] = ["全部"] + values
+    return options
+
+
+def render_submission_controls(submissions: list[dict]) -> dict[str, Any]:
+    filter_options = build_submission_filter_options(submissions)
+    st.markdown('<div class="ps-label">检索台</div>', unsafe_allow_html=True)
+    mode = st.radio(
+        "检索模式",
+        ["混合检索", "关键词检索", "颜色检索"],
+        horizontal=True,
+        key="submission_mode_select",
+    )
+    q_col, c_col = st.columns([0.62, 0.38], gap="small")
+    with q_col:
+        query = st.text_input(
+            "关键词",
+            value=st.session_state.get("submission_query_text", ""),
+            placeholder="例如：海报 蓝色 梦幻 not 暖色",
+            key="submission_query_text",
+        )
+    with c_col:
+        hex_text = st.color_picker(
+            "颜色",
+            value=st.session_state.get("submission_hex_text", "#1E3A8A"),
+            key="submission_hex_text",
+        )
+
+    f1, f2, f3, f4, f5 = st.columns([1, 1, 1, 1, 0.8], gap="small")
+    with f1:
+        overall_tone = st.selectbox("整体色调", filter_options["overall_tone"], key="submission_filter_overall_tone")
+    with f2:
+        color_family = st.selectbox("色系", filter_options["color_family"], key="submission_filter_color_family")
+    with f3:
+        culture = st.selectbox("文化", filter_options["culture"], key="submission_filter_culture")
+    with f4:
+        classification = st.selectbox("分类", filter_options["classification"], key="submission_filter_classification")
+    with f5:
+        top_k = st.number_input(
+            "最大结果数量",
+            min_value=1,
+            value=int(st.session_state.get("submission_top_k", 30)),
+            step=1,
+            key="submission_top_k",
+        )
+
+    return {
+        "mode": mode,
+        "query": query,
+        "hex_text": hex_text,
+        "top_k": int(top_k),
+        "overall_tone": overall_tone,
+        "color_family": color_family,
+        "culture": culture,
+        "classification": classification,
+    }
+
+
+def submission_search_text(item: dict) -> str:
+    fields = [
+        "title", "artist", "year", "culture", "classification", "medium",
+        "overall_tone", "color_family", "tags", "usage_note", "source_url",
+    ]
+    return " ".join(str(item.get(field, "")) for field in fields).lower()
+
+
+def keyword_score_for_submission(query: str, item: dict) -> float:
+    text = submission_search_text(item)
+    raw = query.strip().lower()
+    if not raw:
+        return 1.0
+
+    not_terms: list[str] = []
+    if " not " in f" {raw} ":
+        chunks = raw.split(" not ")
+        raw = chunks[0].strip()
+        not_terms = [term.strip() for chunk in chunks[1:] for term in chunk.replace("，", " ").split() if term.strip()]
+    if any(term in text for term in not_terms):
+        return 0.0
+
+    or_terms = [term.strip() for term in raw.replace(" or ", " OR ").split(" OR ") if term.strip()]
+    if len(or_terms) > 1:
+        return 1.0 if any(term in text for term in or_terms) else 0.0
+
+    terms = [term.strip() for term in raw.replace("，", " ").split() if term.strip()]
+    if not terms:
+        return 1.0
+    matched = sum(1 for term in terms if term in text)
+    return matched / len(terms)
+
+
+def filter_submission_records(submissions: list[dict], values: dict[str, Any]) -> list[dict]:
+    filtered = submissions
+    for field in ("overall_tone", "color_family", "culture", "classification"):
+        value = str(values.get(field, "")).strip()
+        if value and value != "全部":
+            filtered = [item for item in filtered if value in str(item.get(field, ""))]
+    return filtered
+
+
+def search_submissions(submissions: list[dict], values: dict[str, Any]) -> tuple[list[dict], str | None]:
+    candidates = filter_submission_records(submissions, values)
+    mode = str(values.get("mode", "混合检索"))
+    query = str(values.get("query", "")).strip()
+    hex_text = str(values.get("hex_text", "")).strip()
+    top_k = int(values.get("top_k", 9))
+    scored: list[dict] = []
+
+    if mode in ("颜色检索", "混合检索") and hex_text and not is_valid_hex(hex_text):
+        raise ValueError("颜色检索的 HEX 格式不正确。")
+
+    for item in candidates:
+        text_score = keyword_score_for_submission(query, item) if mode in ("关键词检索", "混合检索") else 1.0
+        color_score = (
+            palette_color_similarity(hex_text, item.get("palette_hexes", []), item.get("palette_ratios", []))
+            if mode in ("颜色检索", "混合检索") and hex_text
+            else 1.0
+        )
+
+        if mode == "关键词检索":
+            score = text_score
+        elif mode == "颜色检索":
+            score = color_score
+        else:
+            score = 0.52 * text_score + 0.48 * color_score if query else color_score
+
+        if score <= 0:
+            continue
+        scored.append({
+            **item,
+            "_score": round(float(score), 6),
+            "_reason": "来自开放区；仅在开放区数据内检索，不进入正式馆藏。",
+        })
+
+    scored.sort(key=lambda item: (float(item.get("_score", 0)), str(item.get("created_at", ""))), reverse=True)
+    results = scored[:top_k]
+    for idx, item in enumerate(results, start=1):
+        item["_rank"] = idx
+    note = "关键词为空，当前展示开放区作品。" if mode == "关键词检索" and not query else None
+    return results, note
 
 
 def resolve_ring_image_src(card: dict) -> str:
@@ -2144,15 +2769,18 @@ def render_palette_copy_tools(hexes: list[str]) -> None:
     )
 
 
-def scroll_to_detail() -> None:
-    nonce = int(st.session_state.get("scroll_trigger_nonce", 0))
+def scroll_to_anchor(anchor_id: str, nonce_key: str = "scroll_trigger_nonce") -> None:
+    nonce = int(st.session_state.get(nonce_key, 0))
+    safe_anchor_id = json.dumps(anchor_id)
+    safe_nonce_key = json.dumps(nonce_key)
     components.html(
         f"""
         <script>
           (function () {{
             const triggerNonce = {nonce};
             const delays = [80, 220, 420, 760];
-            const anchorId = "ps-detail-anchor";
+            const anchorId = {safe_anchor_id};
+            const nonceKey = {safe_nonce_key};
             const offsetGap = 18;
 
             function jumpToAnchor() {{
@@ -2191,10 +2819,11 @@ def scroll_to_detail() -> None:
             delays.forEach((delay) => {{
               window.setTimeout(() => {{
                 try {{
-                  if (window.parent.__psScrollNonce === triggerNonce) {{
+                  window.parent.__psScrollNonceMap = window.parent.__psScrollNonceMap || {{}};
+                  if (window.parent.__psScrollNonceMap[nonceKey] === triggerNonce) {{
                     return;
                   }}
-                  window.parent.__psScrollNonce = triggerNonce;
+                  window.parent.__psScrollNonceMap[nonceKey] = triggerNonce;
                   if (!jumpToAnchor()) {{
                     const doc = window.parent && window.parent.document ? window.parent.document : null;
                     const anchor = doc ? doc.getElementById(anchorId) : null;
@@ -2212,6 +2841,10 @@ def scroll_to_detail() -> None:
         """,
         height=1,
     )
+
+
+def scroll_to_detail() -> None:
+    scroll_to_anchor("ps-detail-anchor", "scroll_trigger_nonce")
 
 
 def render_result_card(card: dict, selected: bool = False) -> None:
@@ -2252,7 +2885,7 @@ def render_result_card(card: dict, selected: bool = False) -> None:
                 unsafe_allow_html=True,
             )
         st.button(
-            "打开详情",
+            "卡片详情",
             key=f"image_detail_{card_id}",
             on_click=select_card,
             args=(card_id,),
@@ -2300,6 +2933,401 @@ def render_results(results: list[dict]) -> None:
                     selected=str(card.get("id")) == selected_id,
                 )
         st.markdown('<div class="ps-shelf-rail"><span></span></div>', unsafe_allow_html=True)
+
+
+def render_submission_card(item: dict, selected: bool = False) -> None:
+    image_path = submission_image_path(item.get("image_path"))
+    image_src = image_to_data_uri(image_path) or ""
+    palette_html = palette_bar_html(item.get("palette_hexes", []), item.get("palette_ratios", []))
+    title = html.escape(str(item.get("title", "未命名上传作品")))
+    artist = html.escape(str(item.get("artist", "用户未填写")))
+    year = html.escape(str(item.get("year", "未知年份")))
+    classification = html.escape(str(item.get("classification", "视觉作品")))
+    tone = html.escape(str(item.get("overall_tone", "未标注色调")))
+    family = html.escape(str(item.get("color_family", "未标注色系")))
+    tags = html.escape(str(item.get("tags", "")))
+    usage_note = html.escape(str(item.get("usage_note", "")))
+    created_at = html.escape(str(item.get("created_at", "")))
+    source_url = str(item.get("source_url", "") or "").strip()
+    submission_id = str(item.get("submission_id") or item.get("id") or "")
+
+    with st.container(border=True):
+        st.markdown('<span class="ps-submission-card-sentinel"></span>', unsafe_allow_html=True)
+        if selected:
+            st.markdown('<span class="ps-result-pin">正在查看</span>', unsafe_allow_html=True)
+        if image_src:
+            st.markdown(
+                f"""
+                <div class="ps-result-image">
+                    <img src="{image_src}" alt="{title}" />
+                    <span class="ps-submission-badge" style="position:absolute;left:0.72rem;top:0.72rem;z-index:4;margin:0;">用户上传</span>
+                    <div class="ps-result-cover-caption">
+                        <div class="ps-result-cover-title">{title}</div>
+                        <div class="ps-result-cover-meta">{artist} · {year}<br />{tone} · {family}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div class="ps-result-image" style="display:grid;place-items:center;color:var(--ps-muted);font-weight:800;">上传图片未找到</div>',
+                unsafe_allow_html=True,
+            )
+        st.button(
+            "卡片详情",
+            key=f"submission_detail_{submission_id}",
+            on_click=select_submission,
+            args=(submission_id,),
+        )
+        st.markdown(f'<div class="ps-result-palette">{palette_html}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="ps-submission-badge">未经馆藏核验</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="ps-submission-title">{title}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="ps-submission-meta">{artist} · {year} · {classification}<br />{tone} · {family}</div>',
+            unsafe_allow_html=True,
+        )
+        if tags or usage_note:
+            note_parts = [part for part in (tags, usage_note) if part]
+            st.markdown(f'<div class="ps-submission-note">{" · ".join(note_parts)}</div>', unsafe_allow_html=True)
+        if source_url:
+            safe_source_url = html.escape(source_url, quote=True)
+            st.markdown(
+                f'<div class="ps-result-source-link"><a href="{safe_source_url}" target="_blank" rel="noreferrer">来源链接</a></div>',
+                unsafe_allow_html=True,
+            )
+        if created_at:
+            st.caption(f"提交时间：{created_at}")
+
+
+def render_submission_wall(submissions: list[dict]) -> None:
+    if not submissions:
+        st.info("还没有用户上传作品。上传第一张作品后，它会出现在这里，并与正式馆藏分开展示。")
+        return
+
+    st.markdown(
+        """
+        <div class="ps-source-note">
+            用户上传作品不会进入正式馆藏检索结果；作品信息由上传者填写，尚未经过馆藏核验。
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    column_count = 3 if len(submissions) >= 3 else max(len(submissions), 1)
+    selected_id = str(st.session_state.get("selected_submission_id") or "")
+    for row_start in range(0, len(submissions), column_count):
+        row_items = submissions[row_start : row_start + column_count]
+        cols = st.columns(column_count, gap="large")
+        for idx, item in enumerate(row_items):
+            with cols[idx]:
+                render_submission_card(
+                    item,
+                    selected=str(item.get("submission_id") or item.get("id")) == selected_id,
+                )
+        st.markdown('<div class="ps-shelf-rail"><span></span></div>', unsafe_allow_html=True)
+
+
+def ensure_selected_submission(results: list[dict]) -> dict | None:
+    if not results:
+        return None
+    selected_id = st.session_state.get("selected_submission_id")
+    if selected_id is not None:
+        for item in results:
+            if str(item.get("submission_id") or item.get("id")) == str(selected_id):
+                return item
+    st.session_state.selected_submission_id = str(results[0].get("submission_id") or results[0].get("id"))
+    return results[0]
+
+
+def render_submission_detail_panel(card: dict | None) -> None:
+    st.markdown('<div id="ps-submission-detail-anchor" class="ps-detail-anchor"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="ps-section-title">上传档案 <span>/ Upload File</span></div>', unsafe_allow_html=True)
+    if not card:
+        st.info("请选择一张用户上传作品查看详情。")
+        return
+
+    card_id = str(card.get("submission_id") or card.get("id"))
+    show_report_face = bool(
+        st.session_state.get("show_submission_report")
+        and str(st.session_state.get("submission_report_id")) == card_id
+    )
+
+    with st.container(border=True):
+        st.markdown('<span class="ps-detail-shell-sentinel"></span>', unsafe_allow_html=True)
+        head_left, head_right = st.columns([0.82, 0.18], gap="large")
+        with head_left:
+            st.markdown(
+                f"""
+                <div class="ps-detail-title">{html.escape(str(card.get("title", "未命名上传作品")))}</div>
+                <div class="ps-muted-note">
+                    <span class="ps-view-tab">{"分析报告" if show_report_face else "作品详情"}</span>
+                    &nbsp; {html.escape(str(card.get("artist", "用户未填写")))} · {html.escape(str(card.get("year", "未知年份")))}
+                    · 用户上传 · 未经馆藏核验
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with head_right:
+            st.markdown('<div class="ps-control-spacer"></div>', unsafe_allow_html=True)
+            if show_report_face:
+                st.button("返回详情", use_container_width=True, key=f"submission_back_{card_id}", on_click=close_submission_report)
+            else:
+                st.button(
+                    "查看分析报告",
+                    use_container_width=True,
+                    key=f"submission_report_{card_id}",
+                    on_click=toggle_submission_report,
+                    args=(card_id,),
+                )
+
+        if show_report_face:
+            report_image = ensure_submission_report_image(card)
+            if report_image is None:
+                st.warning("分析报告暂时无法生成。请检查上传图片是否仍存在。")
+            else:
+                st.markdown(
+                    f"""
+                    <div class="ps-soft-appear">
+                        <div class="ps-face-chip" style="margin: 0.8rem 0 0.9rem 0;">
+                            <span>报告模式</span>
+                            <span>·</span>
+                            <span>仅基于用户上传图片和自动调色盘生成</span>
+                        </div>
+                        <div class="ps-report-shell">
+                            <div class="ps-scroll-report">
+                                <div class="ps-scroll-paper">
+                                    <img src="{image_to_data_uri(report_image) or ''}" alt="分析报告" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            return
+
+        st.markdown('<div class="ps-soft-appear">', unsafe_allow_html=True)
+        left, right = st.columns([1.05, 1.15], gap="large")
+
+        with left:
+            st.markdown('<div class="ps-label">原图</div>', unsafe_allow_html=True)
+            image_path = submission_image_path(card.get("image_path"))
+            if image_path and image_path.exists():
+                st.markdown('<div class="ps-image-frame">', unsafe_allow_html=True)
+                st.image(str(image_path), use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.caption("上传图片未找到。")
+
+        with right:
+            st.markdown(
+                f"""
+                <div class="ps-detail-file-title">
+                    <strong>{html.escape(str(card.get("title", "未命名上传作品")))}</strong>
+                    <span>{html.escape(str(card.get("artist", "用户未填写")))} · {html.escape(str(card.get("year", "未知年份")))} · 用户上传</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown('<div class="ps-label">基础信息</div>', unsafe_allow_html=True)
+            info_cols = st.columns(2)
+            info_map = [
+                ("媒介", card.get("medium", "")),
+                ("整体色调", card.get("overall_tone", "")),
+                ("主色系", card.get("color_family", "")),
+                ("分类", card.get("classification", "")),
+            ]
+            for idx, (label, value) in enumerate(info_map):
+                with info_cols[idx % 2]:
+                    st.markdown(f"**{label}**")
+                    st.caption(str(value or "暂无"))
+
+            source_url = str(card.get("source_url", "") or "").strip()
+            if source_url:
+                st.markdown(
+                    f'<div class="ps-card-footer-note" style="justify-content:flex-start;"><a href="{html.escape(source_url, quote=True)}" target="_blank" rel="noreferrer">查看来源</a></div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">调色盘</div>', unsafe_allow_html=True)
+            st.markdown(palette_bar_html(card.get("palette_hexes", []), card.get("palette_ratios", [])), unsafe_allow_html=True)
+            swatch_cols = st.columns(min(max(len(card.get("palette_hexes", [])), 1), 5))
+            palette_hexes = card.get("palette_hexes", [])
+            palette_ratios = card.get("palette_ratios", [])
+            for idx, hex_color in enumerate(palette_hexes[:5]):
+                with swatch_cols[idx % len(swatch_cols)]:
+                    ratio = palette_ratios[idx] if idx < len(palette_ratios) else 0
+                    st.markdown(
+                        f"""
+                        <div class="ps-swatch">
+                            <div class="ps-swatch-color" style="background:{hex_color};"></div>
+                            <div class="ps-swatch-name">Color {idx + 1:02d}</div>
+                            <div class="ps-swatch-hex">{hex_color}</div>
+                            <div class="ps-swatch-hex">占比 {ratio:.2%}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+            render_palette_copy_tools(palette_hexes)
+
+            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">配色用途建议</div>', unsafe_allow_html=True)
+            st.markdown(usage_badges(card.get("usage_suggestion", {})), unsafe_allow_html=True)
+
+            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">标签</div>', unsafe_allow_html=True)
+            tag_items = split_items(card.get("tags", "")) + split_items(card.get("usage_note", ""))
+            if tag_items:
+                st.markdown(
+                    '<div class="ps-badge-list">'
+                    + "".join(f'<span class="{tag_badge_class(item)}">{html.escape(item)}</span>' for item in tag_items[:16])
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption("暂无标签。")
+
+            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">检索信息</div>', unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="ps-search-note">
+                    数据源：开放区 · 不进入正式馆藏
+                    <br />
+                    排名：#{card.get("_rank", "")} · 得分：{card.get("_score", 0.0):.3f}
+                    <br />
+                    提交时间：{html.escape(str(card.get("created_at", "暂无")))}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_submission_section() -> None:
+    st.markdown("---")
+    st.markdown(
+        """
+        <div class="ps-section-title">
+            用户上传 <span>/ Community Uploads</span>
+            <span class="ps-section-help">
+                <span class="ps-section-help-dot">?</span>
+                <span class="ps-section-help-panel">
+                    这里是开放上传区：用户可以上传自己的图片并填写基础信息，系统会自动提取调色盘。
+                    上传内容只展示在本区域，不进入正式馆藏检索结果，也不会影响原有数据质量。
+                </span>
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.button(
+        "上传作品" if not st.session_state.get("show_upload_form") else "收起上传表单",
+        use_container_width=True,
+        key="toggle_upload_form_btn",
+        on_click=toggle_upload_form,
+    )
+
+    notice = st.session_state.pop("submission_notice", None)
+    if notice:
+        level, message = notice
+        if level == "success":
+            st.success(message)
+        else:
+            st.error(message)
+
+    if st.session_state.get("show_upload_form"):
+        with st.container(border=True):
+            st.markdown('<span class="ps-upload-scroll-sentinel"></span>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label">上传作品</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div class="ps-upload-mini-note">填写基础信息后，系统会自动提取调色盘，并把作品保存到开放区。</div>',
+                unsafe_allow_html=True,
+            )
+            with st.form("community_submission_form", clear_on_submit=True):
+                uploaded = st.file_uploader(
+                    "作品图片",
+                    type=["jpg", "jpeg", "png", "webp"],
+                    help="上传后系统会自动提取主色调色盘。",
+                )
+                title = st.text_input("作品标题 *", placeholder="例如：雨夜的蓝色海报")
+                artist = st.text_input("作者 / 上传者", placeholder="例如：匿名用户、作者姓名或未知")
+                year = st.text_input("年份", placeholder="例如：2026、未知年份")
+                c1, c2 = st.columns(2)
+                with c1:
+                    culture = st.text_input("文化 / 地区", placeholder="例如：中国、欧洲、用户上传")
+                    classification = st.text_input("分类", placeholder="例如：绘画、电影海报、摄影")
+                with c2:
+                    medium = st.text_input("媒介", placeholder="例如：数字图像、油画、海报")
+                    source_url = st.text_input("来源链接", placeholder="可选，用于追溯图片来源")
+                tags = st.text_input("标签", placeholder="例如：冷色、梦幻、展览视觉")
+                usage_note = st.text_area("用途说明", placeholder="例如：适合品牌视觉、海报设计或 UI 配色参考", height=82)
+                submitted = st.form_submit_button("提交到开放区", use_container_width=True)
+
+            if submitted:
+                ok, message = save_submission(
+                    uploaded,
+                    {
+                        "title": title,
+                        "artist": artist,
+                        "year": year,
+                        "culture": culture,
+                        "classification": classification,
+                        "medium": medium,
+                        "source_url": source_url,
+                        "tags": tags,
+                        "usage_note": usage_note,
+                    },
+                )
+                st.session_state.submission_notice = ("success" if ok else "error", message)
+                if ok:
+                    st.session_state.show_upload_form = False
+                st.rerun()
+
+    submissions = load_submissions()
+    st.markdown(
+        f'<div class="ps-label" style="margin-top:1rem;">开放区作品 · {len(submissions)} 件</div>',
+        unsafe_allow_html=True,
+    )
+    if submissions:
+        try:
+            submission_values = render_submission_controls(submissions)
+            submission_results, submission_note = search_submissions(submissions, submission_values)
+            if submission_note:
+                st.info(submission_note)
+        except ValueError as exc:
+            st.error(str(exc))
+            submission_results = submissions[:30]
+        except Exception as exc:
+            st.error(f"检索失败：{exc}")
+            submission_results = []
+    else:
+        submission_results = []
+
+    selected_submission = None
+    if submission_results:
+        selected_options = {
+            f'{item.get("title", "未命名上传作品")} · {item.get("artist", "用户未填写")} · {item.get("year", "未知年份")}': idx
+            for idx, item in enumerate(submission_results)
+        }
+        labels = list(selected_options.keys())
+        current_selected = str(st.session_state.get("selected_submission_id") or "")
+        default_index = 0
+        for label, idx in selected_options.items():
+            item = submission_results[idx]
+            if str(item.get("submission_id") or item.get("id")) == current_selected:
+                default_index = idx
+                break
+        selected_label = st.selectbox("选择开放区作品", labels, index=default_index, key="selected_upload_label")
+        selected_submission = submission_results[selected_options[selected_label]]
+        st.session_state.selected_submission_id = str(
+            selected_submission.get("submission_id") or selected_submission.get("id")
+        )
+    else:
+        st.info("还没有可展示的开放区作品。上传第一张作品后，它会出现在这里，并与正式馆藏分开展示。")
+
+    render_submission_detail_panel(selected_submission)
 
 
 def render_detail_panel(card: dict | None) -> None:
@@ -2522,12 +3550,25 @@ def main() -> None:
     st.session_state.setdefault("scroll_trigger_nonce", 0)
     st.session_state.setdefault("query_text", "")
     st.session_state.setdefault("hex_text", "#1E3A8A")
-    st.session_state.setdefault("top_k", 12)
+    st.session_state.setdefault("top_k", 30)
     st.session_state.setdefault("mode_select", "混合检索")
     st.session_state.setdefault("filter_overall_tone", "全部")
     st.session_state.setdefault("filter_color_family", "全部")
     st.session_state.setdefault("filter_culture", "全部")
     st.session_state.setdefault("filter_classification", "全部")
+    st.session_state.setdefault("selected_submission_id", None)
+    st.session_state.setdefault("scroll_to_submission_detail", False)
+    st.session_state.setdefault("submission_scroll_nonce", 0)
+    st.session_state.setdefault("show_submission_report", False)
+    st.session_state.setdefault("submission_report_id", None)
+    st.session_state.setdefault("submission_query_text", "")
+    st.session_state.setdefault("submission_hex_text", "#1E3A8A")
+    st.session_state.setdefault("submission_top_k", 30)
+    st.session_state.setdefault("submission_mode_select", "混合检索")
+    st.session_state.setdefault("submission_filter_overall_tone", "全部")
+    st.session_state.setdefault("submission_filter_color_family", "全部")
+    st.session_state.setdefault("submission_filter_culture", "全部")
+    st.session_state.setdefault("submission_filter_classification", "全部")
 
     if BACKEND_IMPORT_ERROR is not None:
         st.error(
@@ -2567,7 +3608,9 @@ def main() -> None:
 
     st.markdown("---")
     render_detail_panel(selected_card)
+    render_submission_section()
     activate_detail_scroll()
+    activate_submission_detail_scroll()
 
 
 if __name__ == "__main__":

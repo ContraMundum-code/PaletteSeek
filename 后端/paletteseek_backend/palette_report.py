@@ -105,7 +105,25 @@ def fetch_image_from_url(url: str) -> Image.Image:
 
 
 def load_original_image(record: dict) -> Image.Image:
+    local_candidates = [
+        record.get("local_image_path", ""),
+        record.get("image_path", ""),
+    ]
     image_url = str(record.get("image_url", "")).strip()
+    if image_url and not image_url.startswith(("http://", "https://")):
+        local_candidates.insert(0, image_url)
+
+    for candidate in local_candidates:
+        local_path = str(candidate).strip()
+        if not local_path:
+            continue
+        local_image = Path(local_path)
+        if local_image.exists():
+            return Image.open(local_image).convert("RGB")
+        package_relative = Path(__file__).resolve().parent / local_path
+        if package_relative.exists():
+            return Image.open(package_relative).convert("RGB")
+
     if image_url:
         try:
             return fetch_image_from_url(image_url)
