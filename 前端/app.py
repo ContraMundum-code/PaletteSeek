@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import sys
 from pathlib import Path
@@ -81,7 +82,7 @@ html, body, [data-testid="stAppViewContainer"] {
 
 .ps-hero {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     border: 1px solid rgba(24, 36, 51, 0.32);
     background:
         linear-gradient(135deg, rgba(24,36,51,0.98), rgba(36,55,65,0.94)),
@@ -93,11 +94,14 @@ html, body, [data-testid="stAppViewContainer"] {
     animation: psHeroReveal 0.86s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
-.ps-help-dot {
+.ps-help-wrap {
     position: absolute;
     top: 1.25rem;
     right: 1.35rem;
-    z-index: 2;
+    z-index: 20;
+}
+
+.ps-help-dot {
     width: 2rem;
     height: 2rem;
     display: inline-grid;
@@ -113,10 +117,52 @@ html, body, [data-testid="stAppViewContainer"] {
     transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
 
-.ps-help-dot:hover {
+.ps-help-wrap:hover .ps-help-dot {
     transform: translateY(-2px) rotate(4deg);
     background: rgba(255, 253, 248, 0.20);
     box-shadow: 0 12px 28px rgba(226, 179, 110, 0.18);
+}
+
+.ps-help-panel {
+    position: absolute;
+    top: 2.62rem;
+    right: 0;
+    width: min(22rem, calc(100vw - 3rem));
+    border-radius: 16px;
+    border: 1px solid rgba(255, 253, 248, 0.20);
+    background:
+        linear-gradient(135deg, rgba(24, 36, 51, 0.94), rgba(36, 95, 90, 0.82)),
+        radial-gradient(circle at 20% 10%, rgba(226, 179, 110, 0.20), transparent 34%);
+    box-shadow: 0 24px 52px rgba(0, 0, 0, 0.24);
+    padding: 0.92rem;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-6px) scale(0.98);
+    transition: opacity 180ms ease, visibility 180ms ease, transform 180ms ease;
+    backdrop-filter: blur(12px) saturate(1.15);
+    -webkit-backdrop-filter: blur(12px) saturate(1.15);
+    pointer-events: none;
+}
+
+.ps-help-wrap:hover .ps-help-panel {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.ps-help-title {
+    color: #fffdf8;
+    font-size: 0.82rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.66rem;
+}
+
+.ps-help-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.58rem;
 }
 
 .ps-hero::before {
@@ -126,6 +172,7 @@ html, body, [data-testid="stAppViewContainer"] {
     width: 58%;
     height: 160%;
     pointer-events: none;
+    z-index: 0;
     background:
         radial-gradient(circle at 50% 50%, rgba(226, 179, 110, 0.34), transparent 34%),
         radial-gradient(circle at 60% 34%, rgba(36, 95, 90, 0.36), transparent 36%),
@@ -147,6 +194,20 @@ html, body, [data-testid="stAppViewContainer"] {
     background-size: 220% 100%;
     box-shadow: 0 10px 26px rgba(21,25,24,0.12);
     animation: psColorDrift 4.8s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.ps-hero > * {
+    position: relative;
+    z-index: 2;
+}
+
+.ps-hero .ps-help-wrap {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.35rem;
+    z-index: 20;
 }
 
 .ps-kicker {
@@ -224,16 +285,16 @@ html, body, [data-testid="stAppViewContainer"] {
 
 .ps-stat-strip {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.75rem;
-    margin: 0.85rem 0 1.15rem 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.58rem;
+    margin: 0;
 }
 
 .ps-stat {
     border: 1px solid rgba(255, 253, 248, 0.18);
     background: rgba(255, 253, 248, 0.10);
     border-radius: 10px;
-    padding: 0.78rem 0.85rem;
+    padding: 0.62rem 0.68rem;
     box-shadow: var(--ps-tight-shadow);
     transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
     animation: psFadeUp 0.72s cubic-bezier(0.22, 0.61, 0.36, 1) both, psStatGlow 6.8s ease-in-out infinite alternate;
@@ -249,12 +310,12 @@ html, body, [data-testid="stAppViewContainer"] {
 .ps-stat-head {
     display: flex;
     align-items: center;
-    gap: 0.58rem;
+    gap: 0.48rem;
 }
 
 .ps-stat-icon {
-    width: 2.05rem;
-    height: 2.05rem;
+    width: 1.72rem;
+    height: 1.72rem;
     display: inline-grid;
     place-items: center;
     border-radius: 999px;
@@ -280,7 +341,7 @@ html, body, [data-testid="stAppViewContainer"] {
 .ps-stat-value {
     font-family: "Cormorant Garamond", "Georgia", "Times New Roman", serif;
     color: #fffdf8;
-    font-size: 1.48rem;
+    font-size: 1.22rem;
     line-height: 1;
     font-weight: 900;
 }
@@ -289,14 +350,14 @@ html, body, [data-testid="stAppViewContainer"] {
     font-family: "Kaiti SC", "STKaiti", "Xingkai SC", "HanziPen SC", "Songti SC", serif;
     margin-top: 0.35rem;
     color: rgba(255, 253, 248, 0.66);
-    font-size: 0.86rem;
+    font-size: 0.76rem;
     font-weight: 700;
     letter-spacing: 0.04em;
 }
 
 .ps-stat-value-text {
     font-family: "Snell Roundhand", "Apple Chancery", "Brush Script MT", "Segoe Script", cursive;
-    font-size: 1.58rem;
+    font-size: 1.3rem;
     font-weight: 600;
     letter-spacing: 0.02em;
 }
@@ -399,8 +460,10 @@ html, body, [data-testid="stAppViewContainer"] {
     border: 1px solid rgba(21,25,24,0.08);
     box-shadow:
         0 18px 32px rgba(31, 34, 31, 0.16),
+        0 9px 18px rgba(145, 100, 36, 0.11),
         0 2px 0 rgba(255, 253, 248, 0.76) inset;
     transform-origin: center bottom;
+    cursor: pointer;
     transition:
         transform 520ms cubic-bezier(0.22, 0.61, 0.36, 1),
         box-shadow 520ms ease,
@@ -434,12 +497,29 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
         0 0 0 1px rgba(255, 253, 248, 0.42) inset;
 }
 
+.ps-result-image:hover {
+    transform: translateY(-26px) scale(1.052) rotate(-0.35deg);
+    box-shadow:
+        0 36px 62px rgba(31, 34, 31, 0.26),
+        0 18px 34px rgba(180, 118, 42, 0.18),
+        0 0 0 1px rgba(255, 253, 248, 0.46) inset;
+}
+
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-image img {
     transform: scale(1.055);
     filter: saturate(1.09) contrast(1.04);
 }
 
+.ps-result-image:hover img {
+    transform: scale(1.065);
+    filter: saturate(1.1) contrast(1.05);
+}
+
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-result-image::after {
+    opacity: 1;
+}
+
+.ps-result-image:hover::after {
     opacity: 1;
 }
 
@@ -468,14 +548,7 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
 }
 
 .ps-result-caption {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.5rem;
-    align-items: center;
-    margin-bottom: 0.55rem;
-    color: var(--ps-muted);
-    font-size: 0.76rem;
-    font-weight: 700;
+    display: none;
 }
 
 .ps-result-cover-caption {
@@ -513,29 +586,31 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
     transform: translateY(0);
 }
 
+.ps-result-image:hover .ps-result-cover-caption {
+    opacity: 1;
+    transform: translateY(0);
+}
+
 .ps-rank-mark {
-    width: 1.9rem;
-    height: 1.9rem;
+    position: absolute;
+    top: 0.72rem;
+    left: 0.72rem;
+    z-index: 3;
+    width: 2.15rem;
+    height: 2.15rem;
     display: inline-grid;
     place-items: center;
     border-radius: 999px;
-    background: rgba(21, 25, 24, 0.18);
-    color: rgba(255, 253, 248, 0.96);
-    font-size: 0.72rem;
+    background:
+        linear-gradient(135deg, rgba(255, 248, 230, 0.96), rgba(205, 141, 64, 0.78));
+    color: #3e2a13;
+    font-family: "Cormorant Garamond", "Georgia", serif;
+    font-size: 0.92rem;
     font-weight: 900;
-}
-
-.ps-score-mark {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    color: var(--ps-muted);
-}
-
-.ps-score-stars {
-    color: var(--ps-accent);
-    letter-spacing: 0.02em;
-    font-size: 0.78rem;
+    border: 1px solid rgba(255, 253, 248, 0.58);
+    box-shadow:
+        0 12px 24px rgba(31, 34, 31, 0.22),
+        0 0 0 1px rgba(145, 100, 36, 0.10) inset;
 }
 
 .ps-result-reason {
@@ -606,6 +681,28 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
     font-weight: 800;
 }
 
+.ps-result-source-link {
+    margin: -0.18rem 0 0.52rem 0;
+    min-height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.84rem;
+    font-weight: 900;
+}
+
+.ps-result-source-link a {
+    color: var(--ps-jade);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(36, 95, 90, 0.28);
+    transition: color 160ms ease, border-color 160ms ease;
+}
+
+.ps-result-source-link a:hover {
+    color: var(--ps-accent);
+    border-color: rgba(31, 111, 122, 0.58);
+}
+
 .ps-source-note {
     margin: -0.2rem 0 1rem 0;
     padding: 0.58rem 0.78rem;
@@ -619,39 +716,55 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
 
 .ps-shelf-rail {
     position: relative;
-    height: 3.1rem;
-    margin: -0.2rem 0 1.7rem 0;
+    height: 4.2rem;
+    margin: -0.58rem 0 1.85rem 0;
     pointer-events: none;
+    perspective: 900px;
 }
 
 .ps-shelf-rail::before {
     content: "";
     position: absolute;
-    left: 1.5%;
-    right: 1.5%;
-    top: 0.68rem;
-    height: 0.58rem;
-    border-radius: 999px;
+    left: 1.2%;
+    right: 1.2%;
+    top: 0.45rem;
+    height: 1.42rem;
+    border-radius: 6px 6px 18px 18px;
     background:
-        linear-gradient(180deg, rgba(255,255,255,0.95), rgba(216, 214, 205, 0.92)),
-        linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 239, 230, 0.94) 46%, rgba(203, 199, 187, 0.92) 100%),
+        linear-gradient(90deg, rgba(255,255,255,0.18), rgba(255,255,255,0.78), rgba(255,255,255,0.14));
     box-shadow:
-        0 2px 0 rgba(255, 253, 248, 0.98) inset,
-        0 14px 28px rgba(31, 34, 31, 0.23),
-        0 32px 44px rgba(31, 34, 31, 0.12);
+        0 4px 0 rgba(255, 253, 248, 0.96) inset,
+        0 -8px 16px rgba(31, 34, 31, 0.16) inset,
+        0 14px 24px rgba(31, 34, 31, 0.22),
+        0 36px 54px rgba(31, 34, 31, 0.13);
+    transform: rotateX(54deg) translateY(-0.16rem);
+    transform-origin: center top;
 }
 
 .ps-shelf-rail::after {
     content: "";
     position: absolute;
-    left: 7%;
-    right: 7%;
-    top: 1.14rem;
-    height: 1.3rem;
+    left: 4%;
+    right: 4%;
+    top: 1.42rem;
+    height: 2rem;
     border-radius: 50%;
-    background: radial-gradient(ellipse at center, rgba(31, 34, 31, 0.28), transparent 68%);
-    filter: blur(10px);
-    opacity: 0.72;
+    background:
+        radial-gradient(ellipse at center, rgba(31, 34, 31, 0.34), rgba(31, 34, 31, 0.12) 46%, transparent 72%);
+    filter: blur(13px);
+    opacity: 0.82;
+}
+
+.ps-shelf-rail span {
+    position: absolute;
+    left: 2.4%;
+    right: 2.4%;
+    top: 1.18rem;
+    height: 0.22rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, rgba(255, 253, 248, 0.92), transparent);
+    box-shadow: 0 8px 14px rgba(255, 253, 248, 0.18);
 }
 
 .ps-palette {
@@ -679,10 +792,155 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
     animation: psFadeUp 0.62s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
+.ps-detail-shell-sentinel {
+    display: none;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-detail-shell-sentinel) {
+    border: 0 !important;
+    outline: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-detail-shell-sentinel)::before,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-detail-shell-sentinel)::after {
+    border: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+}
+
+.ps-scroll-report {
+    position: relative;
+    max-width: 980px;
+    margin: 1.05rem auto 0 auto;
+    padding: 2.15rem 1.15rem;
+    animation: psScrollUnfurl 0.9s cubic-bezier(0.19, 1, 0.22, 1) both;
+    transform-origin: center top;
+}
+
+.ps-scroll-report::before,
+.ps-scroll-report::after {
+    content: "";
+    position: absolute;
+    left: 0.45rem;
+    right: 0.45rem;
+    height: 1.1rem;
+    border-radius: 999px;
+    background:
+        linear-gradient(180deg, #7f5630, #3d2817),
+        linear-gradient(90deg, #3d2817, #c08a45, #3d2817);
+    box-shadow:
+        0 10px 22px rgba(31, 34, 31, 0.22),
+        0 1px 0 rgba(255, 253, 248, 0.28) inset;
+    z-index: 2;
+}
+
+.ps-scroll-report::before {
+    top: 0.72rem;
+}
+
+.ps-scroll-report::after {
+    bottom: 0.72rem;
+}
+
+.ps-scroll-paper {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+    background:
+        repeating-linear-gradient(90deg, rgba(120, 86, 45, 0.035) 0 1px, transparent 1px 18px),
+        linear-gradient(90deg, rgba(145, 100, 36, 0.13), transparent 8%, transparent 92%, rgba(145, 100, 36, 0.13)),
+        linear-gradient(180deg, #fffaf0, #f5ead8);
+    border: 1px solid rgba(145, 100, 36, 0.18);
+    box-shadow:
+        0 28px 58px rgba(31, 34, 31, 0.16),
+        0 0 0 1px rgba(255, 253, 248, 0.62) inset;
+    padding: 1rem;
+}
+
+.ps-scroll-paper img {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 8px;
+    border: 1px solid rgba(145, 100, 36, 0.12);
+    background: #fff;
+}
+
 .ps-detail-divider {
     height: 1px;
     margin: 0.98rem 0;
     background: linear-gradient(90deg, rgba(36, 95, 90, 0.22), rgba(21, 25, 24, 0.07), transparent);
+}
+
+.ps-detail-file-title {
+    margin-bottom: 0.9rem;
+    padding: 0.78rem 0.88rem;
+    border-radius: 14px;
+    border: 1px solid rgba(36, 95, 90, 0.12);
+    background:
+        linear-gradient(135deg, rgba(255, 253, 248, 0.88), rgba(236, 250, 248, 0.46));
+    box-shadow: 0 12px 26px rgba(31, 34, 31, 0.06);
+}
+
+.ps-detail-file-title strong {
+    display: block;
+    color: var(--ps-ink);
+    font-size: 1.05rem;
+    line-height: 1.35;
+}
+
+.ps-detail-file-title span {
+    display: block;
+    margin-top: 0.28rem;
+    color: var(--ps-muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.ps-usage-card-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.62rem;
+}
+
+.ps-usage-card {
+    min-height: 4.35rem;
+    border-radius: 14px;
+    border: 1px solid rgba(192, 138, 69, 0.18);
+    background:
+        linear-gradient(135deg, rgba(255, 253, 248, 0.92), rgba(250, 229, 191, 0.38));
+    padding: 0.72rem 0.78rem;
+    box-shadow:
+        0 12px 24px rgba(31, 34, 31, 0.06),
+        0 1px 0 rgba(255, 253, 248, 0.84) inset;
+}
+
+.ps-usage-card-key {
+    color: #7d5624;
+    font-size: 0.76rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+}
+
+.ps-usage-card-value {
+    margin-top: 0.35rem;
+    color: var(--ps-ink);
+    font-size: 0.86rem;
+    line-height: 1.45;
+    font-weight: 700;
+}
+
+.ps-search-note {
+    border-radius: 12px;
+    border: 1px dashed rgba(36, 95, 90, 0.16);
+    background: rgba(255, 253, 248, 0.48);
+    color: rgba(104, 113, 111, 0.76);
+    font-size: 0.78rem;
+    line-height: 1.55;
+    padding: 0.68rem 0.75rem;
 }
 
 .ps-copy-hint {
@@ -977,6 +1235,24 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
     }
 }
 
+@keyframes psScrollUnfurl {
+    0% {
+        opacity: 0;
+        transform: scaleY(0.08) translateY(-12px);
+        filter: blur(8px) saturate(0.85);
+    }
+    52% {
+        opacity: 1;
+        transform: scaleY(1.035) translateY(0);
+        filter: blur(1px) saturate(1.04);
+    }
+    100% {
+        opacity: 1;
+        transform: scaleY(1) translateY(0);
+        filter: blur(0) saturate(1);
+    }
+}
+
 .ps-detail-title {
     font-size: 1.55rem;
     font-weight: 900;
@@ -1219,41 +1495,106 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) {
     will-change: transform, opacity, filter;
     position: relative;
     overflow: visible;
-    border-color: transparent;
-    background: transparent;
-    box-shadow: none;
-    padding: 0.45rem 0.35rem 0.25rem 0.35rem;
+    border-color: transparent !important;
+    border-width: 0 !important;
+    border-radius: 18px !important;
+    background:
+        linear-gradient(135deg, rgba(255, 247, 224, 0.44), rgba(188, 126, 48, 0.13)),
+        radial-gradient(circle at 18% 8%, rgba(255, 253, 248, 0.56), transparent 34%),
+        rgba(255, 244, 218, 0.26) !important;
+    box-shadow:
+        0 26px 54px rgba(31, 34, 31, 0.10),
+        0 12px 24px rgba(161, 104, 38, 0.10),
+        0 1px 0 rgba(255, 253, 248, 0.72) inset !important;
+    backdrop-filter: blur(10px) saturate(1.14);
+    -webkit-backdrop-filter: blur(10px) saturate(1.14);
+    padding: 0.9rem 0.82rem 0.72rem 0.82rem;
     animation: psCardFloatReveal 0.72s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
+div[data-testid="stElementContainer"]:has(.ps-result-card-sentinel),
+div[data-testid="stVerticalBlock"]:has(.ps-result-card-sentinel),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel),
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) > div {
+    border: 0 !important;
+    outline: 0 !important;
+}
+
+div[data-testid="stElementContainer"]:has(.ps-result-card-sentinel)::before,
+div[data-testid="stElementContainer"]:has(.ps-result-card-sentinel)::after,
+div[data-testid="stVerticalBlock"]:has(.ps-result-card-sentinel)::before,
+div[data-testid="stVerticalBlock"]:has(.ps-result-card-sentinel)::after,
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel)::after {
+    border: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+}
+
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover {
-    transform: translateY(-8px) scale(1.012);
-    border-color: transparent;
-    box-shadow: none;
+    transform: translateY(-12px) scale(1.028);
+    border-color: transparent !important;
+    border-width: 0 !important;
+    box-shadow:
+        0 38px 76px rgba(31, 34, 31, 0.16),
+        0 20px 40px rgba(161, 104, 38, 0.16),
+        0 1px 0 rgba(255, 253, 248, 0.80) inset !important;
 }
 
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton,
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .ps-card-footer-note {
-    opacity: 0;
-    transform: translateY(12px);
-    transition: opacity 260ms ease, transform 260ms ease;
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-selected) {
+    border-left: 5px solid #7fb8ad !important;
+    box-shadow:
+        -10px 0 24px rgba(127, 184, 173, 0.26),
+        0 28px 58px rgba(31, 34, 31, 0.12),
+        0 13px 28px rgba(161, 104, 38, 0.12),
+        0 1px 0 rgba(255, 253, 248, 0.76) inset !important;
 }
 
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton,
-div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .ps-card-footer-note {
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-selected)::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    top: 1rem;
+    bottom: 1rem;
+    width: 5px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(196, 238, 230, 0.95), rgba(77, 146, 137, 0.86));
+    box-shadow: 0 0 22px rgba(127, 184, 173, 0.55);
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton {
+    position: absolute;
+    top: 0.9rem;
+    left: 0.82rem;
+    right: 0.82rem;
+    aspect-ratio: 1 / 1.16;
+    z-index: 6;
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
+}
+
+div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton {
+    opacity: 1;
+    transform: none;
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) .stButton > button {
-    background: rgba(255, 253, 248, 0.94);
-    box-shadow: 0 14px 26px rgba(31, 34, 31, 0.14);
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 0;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: transparent !important;
+    font-size: 0;
+    cursor: pointer;
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):hover .stButton > button:hover {
-    background: #182433;
-    color: #fffdf8;
-    border-color: #182433;
+    background: transparent !important;
+    color: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
 }
 
 @supports (animation-timeline: view()) {
@@ -1298,6 +1639,10 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel):ho
 
     div[role="radiogroup"] label {
         flex-basis: calc(50% - 0.55rem);
+    }
+
+    .ps-usage-card-list {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -1360,19 +1705,17 @@ def palette_bar_html(hexes: list[str], ratios: list[float]) -> str:
 def usage_badges(usage: dict[str, str]) -> str:
     if not usage:
         return '<div class="ps-muted-note">暂无配色建议。</div>'
-    chips = []
+    cards = []
     for key, value in usage.items():
-        chips.append(f'<span class="ps-badge">{key} · {value}</span>')
-    return '<div class="ps-badge-list">' + "".join(chips) + "</div>"
-
-
-def score_stars(score: float, min_score: float, max_score: float) -> str:
-    if max_score <= min_score:
-        filled = 5 if score > 0 else 0
-    else:
-        normalized = (float(score or 0.0) - min_score) / (max_score - min_score)
-        filled = max(1, min(5, round(normalized * 4) + 1))
-    return "★" * filled + "☆" * (5 - filled)
+        safe_key = html.escape(str(key))
+        safe_value = html.escape(str(value))
+        cards.append(
+            f'<div class="ps-usage-card">'
+            f'<div class="ps-usage-card-key">{safe_key}</div>'
+            f'<div class="ps-usage-card-value">{safe_value}</div>'
+            f'</div>'
+        )
+    return '<div class="ps-usage-card-list">' + "".join(cards) + "</div>"
 
 
 def tag_badge_class(item: str) -> str:
@@ -1396,7 +1739,53 @@ def render_hero(ps: PaletteSeek) -> None:
         st.markdown(
             f"""
             <div class="ps-hero">
-                <span class="ps-help-dot" title="检索规则：关键词支持 OR / NOT；颜色检索可直接选择或粘贴 HEX；空关键词会展示全部作品。">?</span>
+                <div class="ps-help-wrap">
+                    <span class="ps-help-dot">?</span>
+                    <div class="ps-help-panel">
+                        <div class="ps-help-title">馆藏概览 / 使用提示</div>
+                        <div class="ps-stat-strip">
+                            <div class="ps-stat">
+                                <div class="ps-stat-head">
+                                    <span class="ps-stat-icon">▧</span>
+                                    <div>
+                                        <div class="ps-stat-value">{stats.get("total", 0)}</div>
+                                        <div class="ps-stat-label">馆藏作品</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ps-stat">
+                                <div class="ps-stat-head">
+                                    <span class="ps-stat-icon">◒</span>
+                                    <div>
+                                        <div class="ps-stat-value">{len(stats.get("color_families", []))}</div>
+                                        <div class="ps-stat-label">主色系</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ps-stat">
+                                <div class="ps-stat-head">
+                                    <span class="ps-stat-icon">◍</span>
+                                    <div>
+                                        <div class="ps-stat-value">{len(stats.get("overall_tones", []))}</div>
+                                        <div class="ps-stat-label">整体色调</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ps-stat">
+                                <div class="ps-stat-head">
+                                    <span class="ps-stat-icon">▦</span>
+                                    <div>
+                                        <div class="ps-stat-value ps-stat-value-text">Excel</div>
+                                        <div class="ps-stat-label">本地数据源</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ps-muted-note" style="color:rgba(255,253,248,0.68);font-size:0.76rem;margin-top:0.68rem;">
+                            关键词支持 OR / NOT；颜色检索可直接选择或粘贴 HEX；空关键词会展示全部作品。
+                        </div>
+                    </div>
+                </div>
                 <div class="ps-kicker">
                     <span style="--i:0">P</span><span style="--i:1">a</span><span style="--i:2">l</span><span style="--i:3">e</span><span style="--i:4">t</span><span style="--i:5">t</span><span style="--i:6">e</span><span style="--i:7">S</span><span style="--i:8">e</span><span style="--i:9">e</span><span style="--i:10">k</span>
                     <span style="--i:11">&nbsp;/&nbsp;</span>
@@ -1412,44 +1801,6 @@ def render_hero(ps: PaletteSeek) -> None:
                 <div class="ps-subtitle">
                     从绘画、电影海报与视觉艺术作品中提取色彩线索，把关键词、取色盘和风格标签
                     转译成可浏览、可比较、可落地的灵感档案。
-                </div>
-                <div class="ps-stat-strip">
-                    <div class="ps-stat">
-                        <div class="ps-stat-head">
-                            <span class="ps-stat-icon">▧</span>
-                            <div>
-                                <div class="ps-stat-value">{stats.get("total", 0)}</div>
-                                <div class="ps-stat-label">馆藏作品</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ps-stat">
-                        <div class="ps-stat-head">
-                            <span class="ps-stat-icon">◒</span>
-                            <div>
-                                <div class="ps-stat-value">{len(stats.get("color_families", []))}</div>
-                                <div class="ps-stat-label">主色系</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ps-stat">
-                        <div class="ps-stat-head">
-                            <span class="ps-stat-icon">◍</span>
-                            <div>
-                                <div class="ps-stat-value">{len(stats.get("overall_tones", []))}</div>
-                                <div class="ps-stat-label">整体色调</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ps-stat">
-                        <div class="ps-stat-head">
-                            <span class="ps-stat-icon">▦</span>
-                            <div>
-                                <div class="ps-stat-value ps-stat-value-text">Excel</div>
-                                <div class="ps-stat-label">本地数据源</div>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
             """,
@@ -1863,24 +2214,26 @@ def scroll_to_detail() -> None:
     )
 
 
-def render_result_card(card: dict, selected: bool = False, min_score: float = 0.0, max_score: float = 1.0) -> None:
+def render_result_card(card: dict, selected: bool = False) -> None:
     palette_html = palette_bar_html(card.get("palette_hexes", []), card.get("palette_ratios", []))
     rank = card.get("_rank", "")
-    score = card.get("_score", 0.0)
-    stars = score_stars(float(score or 0.0), min_score=min_score, max_score=max_score)
-    reason = card.get("_reason", "")
     image_src = resolve_ring_image_src(card)
+    card_id = str(card.get("id", ""))
+    source_url = str(card.get("source_url", "") or "").strip()
+    safe_source_url = html.escape(source_url, quote=True)
 
     with st.container(border=True):
         st.markdown('<span class="ps-result-card-sentinel"></span>', unsafe_allow_html=True)
         if selected:
+            st.markdown('<span class="ps-result-selected"></span>', unsafe_allow_html=True)
             st.markdown('<span class="ps-result-pin">正在查看</span>', unsafe_allow_html=True)
 
         if image_src:
             st.markdown(
                 f"""
-                <div class="ps-result-image">
-                    <img src="{image_src}" alt="{card.get("title", "未命名作品")}" />
+                <div class="ps-result-image" title="点击查看作品详情">
+                    <img src="{image_src}" alt="{html.escape(str(card.get("title", "未命名作品")), quote=True)}" />
+                    <span class="ps-rank-mark">{rank}</span>
                     <div class="ps-result-cover-caption">
                         <div class="ps-result-cover-title">{card.get("title", "未命名作品")}</div>
                         <div class="ps-result-cover-meta">
@@ -1895,52 +2248,21 @@ def render_result_card(card: dict, selected: bool = False, min_score: float = 0.
             )
         else:
             st.markdown(
-                '<div class="ps-result-image" style="display:grid;place-items:center;color:var(--ps-muted);font-weight:700;">暂无原作图</div>',
+                f'<div class="ps-result-image" title="点击查看作品详情" style="display:grid;place-items:center;color:var(--ps-muted);font-weight:700;"><span class="ps-rank-mark">{rank}</span>暂无原作图</div>',
                 unsafe_allow_html=True,
             )
-
-        st.markdown(
-            f"""
-            <div class="ps-result-caption">
-                <span class="ps-rank-mark">{rank}</span>
-                <span class="ps-score-mark" title="星级按本次结果的相对得分计算"><span class="ps-score-stars">{stars}</span><span>{score:.3f}</span></span>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.button(
+            "打开详情",
+            key=f"image_detail_{card_id}",
+            on_click=select_card,
+            args=(card_id,),
         )
-        st.markdown(f'<div class="ps-result-palette">{palette_html}</div>', unsafe_allow_html=True)
-        st.markdown(
-            f"""
-            <div class="ps-result-title">{card.get("title", "未命名作品")}</div>
-            <div class="ps-result-meta">
-                {card.get("artist", "未知作者")} · {card.get("year", "未知年份")}
-            </div>
-            <div class="ps-result-overlay-note">
-                <div class="ps-result-reason">
-                    {reason or "暂无推荐理由。"}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        left, right = st.columns(2)
-        with left:
-            st.button(
-                "查看详情",
-                key=f"detail_{card.get('id')}",
-                use_container_width=True,
-                on_click=select_card,
-                args=(card.get("id"),),
+        if source_url:
+            st.markdown(
+                f'<div class="ps-result-source-link"><a href="{safe_source_url}" target="_blank" rel="noreferrer">来源链接</a></div>',
+                unsafe_allow_html=True,
             )
-        with right:
-            source_url = card.get("source_url", "")
-            if source_url:
-                st.markdown(
-                    f'<div class="ps-card-footer-note"><a href="{source_url}" target="_blank" rel="noreferrer">来源链接</a></div>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.markdown('<div class="ps-card-footer-note">暂无来源链接</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="ps-result-palette">{palette_html}</div>', unsafe_allow_html=True)
 
 
 def render_results(results: list[dict]) -> None:
@@ -1956,10 +2278,6 @@ def render_results(results: list[dict]) -> None:
         """,
         unsafe_allow_html=True,
     )
-
-    scores = [float(card.get("_score") or 0.0) for card in results]
-    min_score = min(scores) if scores else 0.0
-    max_score = max(scores) if scores else 1.0
 
     count = len(results)
     if count >= 25:
@@ -1980,10 +2298,8 @@ def render_results(results: list[dict]) -> None:
                 render_result_card(
                     card,
                     selected=str(card.get("id")) == selected_id,
-                    min_score=min_score,
-                    max_score=max_score,
                 )
-        st.markdown('<div class="ps-shelf-rail"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="ps-shelf-rail"><span></span></div>', unsafe_allow_html=True)
 
 
 def render_detail_panel(card: dict | None) -> None:
@@ -1999,6 +2315,7 @@ def render_detail_panel(card: dict | None) -> None:
     )
 
     with st.container(border=True):
+        st.markdown('<span class="ps-detail-shell-sentinel"></span>', unsafe_allow_html=True)
         head_left, head_right = st.columns([0.82, 0.18], gap="large")
         with head_left:
             if show_report_face:
@@ -2057,13 +2374,14 @@ def render_detail_panel(card: dict | None) -> None:
                             <span>{card.get("source_url", "") and "基于该作品调色盘生成" or "按作品数据生成"}</span>
                         </div>
                         <div class="ps-report-shell">
-                        <div class="ps-detail-panel">
-                            <img
-                                src="{image_to_data_uri(report_image) or ''}"
-                                alt="分析报告"
-                                style="width: 100%; max-width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid rgba(17,24,39,0.08); background: #fff;"
-                            />
-                        </div>
+                            <div class="ps-scroll-report">
+                                <div class="ps-scroll-paper">
+                                    <img
+                                        src="{image_to_data_uri(report_image) or ''}"
+                                        alt="分析报告"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </div>
                     """,
@@ -2103,6 +2421,15 @@ def render_detail_panel(card: dict | None) -> None:
                 st.caption("本地色卡图片未找到。")
 
         with right:
+            st.markdown(
+                f"""
+                <div class="ps-detail-file-title">
+                    <strong>{card.get("title", "未命名作品")}</strong>
+                    <span>{card.get("artist", "未知作者")} · {card.get("year", "未知年份")} · {card.get("culture", "未知文化")}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             st.markdown('<div class="ps-label">基础信息</div>', unsafe_allow_html=True)
             info_cols = st.columns(2)
             info_map = [
@@ -2149,6 +2476,10 @@ def render_detail_panel(card: dict | None) -> None:
             render_palette_copy_tools(palette_hexes)
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">配色用途建议</div>', unsafe_allow_html=True)
+            st.markdown(usage_badges(card.get("usage_suggestion", {})), unsafe_allow_html=True)
+
+            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="ps-label" style="margin-top:0.9rem;">标签</div>', unsafe_allow_html=True)
             tag_items = []
             for field in ["color_tags", "emotion_tags", "style_tags", "use_tags"]:
@@ -2168,14 +2499,10 @@ def render_detail_panel(card: dict | None) -> None:
                 st.caption("暂无标签。")
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
-            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">配色用途建议</div>', unsafe_allow_html=True)
-            st.markdown(usage_badges(card.get("usage_suggestion", {})), unsafe_allow_html=True)
-
-            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="ps-label" style="margin-top:0.9rem;">检索信息</div>', unsafe_allow_html=True)
             st.markdown(
                 f"""
-                <div class="ps-muted-note">
+                <div class="ps-search-note">
                     排名：#{card.get("_rank", "")} · 得分：{card.get("_score", 0.0):.3f}
                     <br />
                     推荐理由：{card.get("_reason", "") or "暂无"}
