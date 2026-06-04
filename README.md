@@ -6,6 +6,12 @@ By extracting dominant color palettes from artworks and organizing them with sem
 
 🌐 Live Demo: https://paletteseek.streamlit.app/
 
+## Screenshots
+
+### Home Page — Artwork Exploration
+
+<img src="docs/home.png" alt="Home Page" style="zoom:33%;" />
+
 ---
 
 ## Overview
@@ -204,12 +210,5 @@ Developed as part of the Information Storage and Retrieval course group project.
 
 PaletteSeek © 2026
 
-## Screenshots
 
-### Home Page — Artwork Exploration
 
-![Home Page](docs/home1.png)
-
-### Home Page — Palette Discovery
-
-![Home Page](docs/home2.png)
