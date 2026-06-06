@@ -1,8 +1,16 @@
 <div align="center">
 
-# PaletteSeek  
+<div align="center">
+<div align="center">
+<img src="docs/logo.png" width="110">
 
-##### 色彩智慧，艺术精选 <img src="docs/logo.png" alt="PaletteSeek" style="zoom:10%;" />
+# PaletteSeek
+
+### 色彩智慧，艺术精选。
+
+</div>
+
+</div>
 
 从绘画、电影海报与视觉艺术中提取色彩线索
 将模糊的审美意图转译为可检索、可比较、可落地的配色档案。
