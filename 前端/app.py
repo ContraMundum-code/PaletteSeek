@@ -24,6 +24,7 @@ REPORTS_DIR = BACKEND_PACKAGE_DIR / "reports"
 SUBMISSIONS_FILE = BACKEND_PACKAGE_DIR / "submissions.xlsx"
 SUBMISSIONS_IMAGES_DIR = BACKEND_PACKAGE_DIR / "submissions_images"
 SUBMISSION_REPORTS_DIR = BACKEND_PACKAGE_DIR / "submission_reports"
+BACKEND_CACHE_VERSION = "ratio_parse_v2"
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -35,6 +36,7 @@ try:  # noqa: E402
         classify_hex_family,
         is_valid_hex,
         palette_color_similarity,
+        parse_palette_ratio,
         rgb_to_hex,
     )
     from paletteseek_backend.result_formatter import generate_usage_suggestion
@@ -55,6 +57,9 @@ except Exception as exc:  # pragma: no cover - runtime guard for missing deps
 
     def generate_usage_suggestion(_: dict) -> dict[str, str]:
         return {}
+
+    def parse_palette_ratio(_: Any) -> float:
+        return 0.0
 
     BACKEND_IMPORT_ERROR = exc
 
@@ -1111,34 +1116,33 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-detail-shell-sentinel)::
 
 .ps-usage-card-list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.62rem;
+    gap: 0.55rem;
 }
 
-.ps-usage-card {
-    min-height: 4.35rem;
-    border-radius: 14px;
-    border: 1px solid rgba(192, 138, 69, 0.18);
-    background:
-        linear-gradient(135deg, rgba(255, 253, 248, 0.92), rgba(250, 229, 191, 0.38));
-    padding: 0.72rem 0.78rem;
-    box-shadow:
-        0 12px 24px rgba(31, 34, 31, 0.06),
-        0 1px 0 rgba(255, 253, 248, 0.84) inset;
+.ps-usage-line {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    padding-bottom: 0.34rem;
+    border-bottom: 1px solid rgba(21, 25, 24, 0.06);
 }
 
-.ps-usage-card-key {
-    color: #7d5624;
-    font-size: 0.76rem;
+.ps-usage-line:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.ps-usage-line-key {
+    min-width: 4.4em;
+    color: var(--ps-jade);
+    font-size: 0.88rem;
     font-weight: 900;
-    letter-spacing: 0.08em;
 }
 
-.ps-usage-card-value {
-    margin-top: 0.35rem;
+.ps-usage-line-value {
     color: var(--ps-ink);
-    font-size: 0.86rem;
-    line-height: 1.45;
+    font-size: 0.9rem;
+    line-height: 1.5;
     font-weight: 700;
 }
 
@@ -1894,7 +1898,8 @@ def load_backend() -> PaletteSeek:
 
 
 @st.cache_resource
-def get_backend() -> PaletteSeek:
+def get_backend(cache_version: str = BACKEND_CACHE_VERSION) -> PaletteSeek:
+    _ = cache_version
     return load_backend()
 
 
@@ -1912,7 +1917,7 @@ def palette_bar_html(hexes: list[str], ratios: list[float]) -> str:
     clean_ratios = []
     for ratio in ratios[: len(hexes)]:
         try:
-            clean_ratios.append(max(float(ratio), 0.0))
+            clean_ratios.append(max(parse_palette_ratio(ratio), 0.0))
         except (TypeError, ValueError):
             clean_ratios.append(0.0)
 
@@ -1922,25 +1927,25 @@ def palette_bar_html(hexes: list[str], ratios: list[float]) -> str:
     parts = []
     total = sum(clean_ratios)
     for hex_color, ratio in zip(hexes, clean_ratios):
-        flex = max(ratio / total, 0.04)
-        parts.append(f'<span style="flex:{flex:.6f};background:{hex_color}"></span>')
+        flex = max(ratio / total, 0.002)
+        parts.append(f'<span style="flex:{flex:.6f};background:{hex_color}" title="{hex_color} · {ratio / total:.2%}"></span>')
     return '<div class="ps-palette">' + "".join(parts) + "</div>"
 
 
 def usage_badges(usage: dict[str, str]) -> str:
     if not usage:
         return '<div class="ps-muted-note">暂无配色建议。</div>'
-    cards = []
+    items = []
     for key, value in usage.items():
         safe_key = html.escape(str(key))
         safe_value = html.escape(str(value))
-        cards.append(
-            f'<div class="ps-usage-card">'
-            f'<div class="ps-usage-card-key">{safe_key}</div>'
-            f'<div class="ps-usage-card-value">{safe_value}</div>'
+        items.append(
+            f'<div class="ps-usage-line">'
+            f'<span class="ps-usage-line-key">{safe_key}</span>'
+            f'<span class="ps-usage-line-value">{safe_value}</span>'
             f'</div>'
         )
-    return '<div class="ps-usage-card-list">' + "".join(cards) + "</div>"
+    return '<div class="ps-usage-line-list">' + "".join(items) + "</div>"
 
 
 def tag_badge_class(item: str) -> str:
@@ -2436,7 +2441,7 @@ def load_submissions() -> list[dict]:
         rec = {str(key): str(value) for key, value in row.to_dict().items()}
         rec["palette_hexes"] = [str(item) for item in parse_json_list(rec.get("palette_hexes"))]
         rec["palette_ratios"] = [
-            float(item) for item in parse_json_list(rec.get("palette_ratios")) if str(item).strip()
+            parse_palette_ratio(item) for item in parse_json_list(rec.get("palette_ratios")) if str(item).strip()
         ]
         rec["id"] = rec.get("submission_id", "")
         rec["source_type"] = "user_submission"
@@ -2690,10 +2695,6 @@ def render_palette_copy_tools(hexes: list[str]) -> None:
         f"""
         <div class="ps-copy-widget">
           <button type="button" class="ps-copy-all" data-palette='{payload}'>复制全套色值</button>
-          <div class="ps-copy-list">
-            {''.join(f'<button type="button" class="ps-copy-one" data-hex="{hex_color}">{hex_color}</button>' for hex_color in clean_hexes[:8])}
-          </div>
-          <div class="ps-copy-status" aria-live="polite">点击色号即可复制 HEX。</div>
         </div>
         <style>
           body {{
@@ -2703,69 +2704,50 @@ def render_palette_copy_tools(hexes: list[str]) -> None:
           }}
           .ps-copy-widget {{
             display: flex;
-            flex-wrap: wrap;
             align-items: center;
-            gap: 8px;
-            color: #68716f;
-            font-size: 12px;
-          }}
-          .ps-copy-all,
-          .ps-copy-one {{
-            border: 1px solid rgba(36, 95, 90, 0.20);
-            border-radius: 999px;
-            background: rgba(255, 253, 248, 0.92);
-            color: #151918;
-            padding: 7px 11px;
-            cursor: pointer;
-            font-weight: 700;
-            transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+            justify-content: flex-start;
+            margin-top: 0;
           }}
           .ps-copy-all {{
-            background: #182433;
-            color: #fffdf8;
-            border-color: #182433;
-          }}
-          .ps-copy-all:hover,
-          .ps-copy-one:hover {{
-            transform: translateY(-1px);
-            border-color: rgba(31, 111, 122, 0.42);
-            background: rgba(255, 253, 248, 1);
+            border: 1px solid rgba(36, 95, 90, 0.14);
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(255, 253, 248, 0.70), rgba(236, 250, 248, 0.44));
+            color: #245f5a;
+            padding: 8px 13px;
+            cursor: pointer;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            box-shadow:
+              0 10px 22px rgba(31, 34, 31, 0.06),
+              0 1px 0 rgba(255, 255, 255, 0.75) inset;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
           }}
           .ps-copy-all:hover {{
-            background: #1f6f7a;
-            color: #fffdf8;
-          }}
-          .ps-copy-list {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-          }}
-          .ps-copy-status {{
-            flex-basis: 100%;
-            color: #68716f;
-            line-height: 1.4;
+            transform: translateY(-1px);
+            border-color: rgba(31, 111, 122, 0.26);
+            background: linear-gradient(135deg, rgba(255, 253, 248, 0.82), rgba(232, 246, 245, 0.60));
+            box-shadow:
+              0 14px 28px rgba(31, 34, 31, 0.08),
+              0 1px 0 rgba(255, 255, 255, 0.88) inset;
           }}
         </style>
         <script>
-          const status = document.querySelector(".ps-copy-status");
           async function copyText(text) {{
             try {{
               await navigator.clipboard.writeText(text);
-              status.textContent = "已复制：" + text;
             }} catch (err) {{
-              status.textContent = "复制失败，请手动选择色值。";
+              console.warn("copy failed", err);
             }}
           }}
           document.querySelector(".ps-copy-all").addEventListener("click", (event) => {{
             const values = JSON.parse(event.currentTarget.dataset.palette || "[]");
             copyText(values.join(" "));
           }});
-          document.querySelectorAll(".ps-copy-one").forEach((button) => {{
-            button.addEventListener("click", () => copyText(button.dataset.hex || ""));
-          }});
         </script>
         """,
-        height=106,
+        height=46,
     )
 
 
@@ -3119,16 +3101,22 @@ def render_submission_detail_panel(card: dict | None) -> None:
             else:
                 st.caption("上传图片未找到。")
 
-        with right:
+            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">检索信息</div>', unsafe_allow_html=True)
             st.markdown(
                 f"""
-                <div class="ps-detail-file-title">
-                    <strong>{html.escape(str(card.get("title", "未命名上传作品")))}</strong>
-                    <span>{html.escape(str(card.get("artist", "用户未填写")))} · {html.escape(str(card.get("year", "未知年份")))} · 用户上传</span>
+                <div class="ps-search-note">
+                    数据源：开放区 · 不进入正式馆藏
+                    <br />
+                    排名：#{card.get("_rank", "")} · 得分：{card.get("_score", 0.0):.3f}
+                    <br />
+                    提交时间：{html.escape(str(card.get("created_at", "暂无")))}
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+        with right:
             st.markdown('<div class="ps-label">基础信息</div>', unsafe_allow_html=True)
             info_cols = st.columns(2)
             info_map = [
@@ -3150,26 +3138,20 @@ def render_submission_detail_panel(card: dict | None) -> None:
                 )
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
-            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">调色盘</div>', unsafe_allow_html=True)
-            st.markdown(palette_bar_html(card.get("palette_hexes", []), card.get("palette_ratios", [])), unsafe_allow_html=True)
-            swatch_cols = st.columns(min(max(len(card.get("palette_hexes", [])), 1), 5))
-            palette_hexes = card.get("palette_hexes", [])
-            palette_ratios = card.get("palette_ratios", [])
-            for idx, hex_color in enumerate(palette_hexes[:5]):
-                with swatch_cols[idx % len(swatch_cols)]:
-                    ratio = palette_ratios[idx] if idx < len(palette_ratios) else 0
-                    st.markdown(
-                        f"""
-                        <div class="ps-swatch">
-                            <div class="ps-swatch-color" style="background:{hex_color};"></div>
-                            <div class="ps-swatch-name">Color {idx + 1:02d}</div>
-                            <div class="ps-swatch-hex">{hex_color}</div>
-                            <div class="ps-swatch-hex">占比 {ratio:.2%}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-            render_palette_copy_tools(palette_hexes)
+            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">色卡图</div>', unsafe_allow_html=True)
+            try:
+                backend = get_backend()
+                palette_img = backend.get_palette_image_path(card.get("id"))
+            except Exception:
+                palette_img = None
+            if palette_img:
+                st.markdown('<div class="ps-image-frame">', unsafe_allow_html=True)
+                st.image(str(palette_img), use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown('<div style="height:0.20rem;"></div>', unsafe_allow_html=True)
+                render_palette_copy_tools(card.get("palette_hexes", []))
+            else:
+                st.caption("本地色卡图片未找到。")
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="ps-label" style="margin-top:0.9rem;">配色用途建议</div>', unsafe_allow_html=True)
@@ -3188,20 +3170,6 @@ def render_submission_detail_panel(card: dict | None) -> None:
             else:
                 st.caption("暂无标签。")
 
-            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
-            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">检索信息</div>', unsafe_allow_html=True)
-            st.markdown(
-                f"""
-                <div class="ps-search-note">
-                    数据源：开放区 · 不进入正式馆藏
-                    <br />
-                    排名：#{card.get("_rank", "")} · 得分：{card.get("_score", 0.0):.3f}
-                    <br />
-                    提交时间：{html.escape(str(card.get("created_at", "暂无")))}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
         st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -3449,15 +3417,6 @@ def render_detail_panel(card: dict | None) -> None:
                 st.caption("本地色卡图片未找到。")
 
         with right:
-            st.markdown(
-                f"""
-                <div class="ps-detail-file-title">
-                    <strong>{card.get("title", "未命名作品")}</strong>
-                    <span>{card.get("artist", "未知作者")} · {card.get("year", "未知年份")} · {card.get("culture", "未知文化")}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
             st.markdown('<div class="ps-label">基础信息</div>', unsafe_allow_html=True)
             info_cols = st.columns(2)
             info_map = [
@@ -3473,35 +3432,7 @@ def render_detail_panel(card: dict | None) -> None:
             source_url = card.get("source_url", "")
             if source_url:
                 st.markdown(f'<div class="ps-card-footer-note" style="justify-content:flex-start;"><a href="{source_url}" target="_blank" rel="noreferrer">查看馆藏来源</a></div>', unsafe_allow_html=True)
-
-            st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
-            st.markdown('<div class="ps-label" style="margin-top:0.9rem;">调色盘</div>', unsafe_allow_html=True)
-            st.markdown(
-                palette_bar_html(card.get("palette_hexes", []), card.get("palette_ratios", [])),
-                unsafe_allow_html=True,
-            )
-            st.markdown('<div class="ps-copy-hint">点击下方色号可复制单个 HEX，也可以一键复制整套色值。</div>', unsafe_allow_html=True)
-
-            swatch_cols = st.columns(min(max(len(card.get("palette_hexes", [])), 1), 5))
-            palette_hexes = card.get("palette_hexes", [])
-            palette_ratios = card.get("palette_ratios", [])
-            color_names = card.get("color_names", [])
-            for idx, hex_color in enumerate(palette_hexes[:5]):
-                with swatch_cols[idx % len(swatch_cols)]:
-                    ratio = palette_ratios[idx] if idx < len(palette_ratios) else 0
-                    color_name = color_names[idx] if idx < len(color_names) else "主色"
-                    st.markdown(
-                        f"""
-                        <div class="ps-swatch">
-                            <div class="ps-swatch-color" style="background:{hex_color};"></div>
-                            <div class="ps-swatch-name">{color_name}</div>
-                            <div class="ps-swatch-hex">{hex_color}</div>
-                            <div class="ps-swatch-hex">占比 {ratio:.2%}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-            render_palette_copy_tools(palette_hexes)
+            render_palette_copy_tools(card.get("palette_hexes", []))
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="ps-label" style="margin-top:0.9rem;">配色用途建议</div>', unsafe_allow_html=True)

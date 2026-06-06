@@ -36,10 +36,24 @@ from matplotlib import font_manager
 from PIL import Image
 
 try:
-    from .color_utils import delta_e, hex_to_rgb, rgb_to_hex, rgb_to_hsv, rgb_to_lab
+    from .color_utils import (
+        delta_e,
+        hex_to_rgb,
+        parse_palette_ratio,
+        rgb_to_hex,
+        rgb_to_hsv,
+        rgb_to_lab,
+    )
     from .data_loader import ArtworkDataset
 except ImportError:
-    from color_utils import delta_e, hex_to_rgb, rgb_to_hex, rgb_to_hsv, rgb_to_lab
+    from color_utils import (
+        delta_e,
+        hex_to_rgb,
+        parse_palette_ratio,
+        rgb_to_hex,
+        rgb_to_hsv,
+        rgb_to_lab,
+    )
     from data_loader import ArtworkDataset
 
 
@@ -153,12 +167,7 @@ def ensure_palette_data(record: dict) -> tuple[list[str], list[float], list[str]
             hx = str(record.get(f"color_{idx}_hex", "")).strip()
             if hx:
                 hexes.append(hx)
-                raw_ratio = str(record.get(f"color_{idx}_ratio", "")).strip().rstrip("%")
-                try:
-                    val = float(raw_ratio)
-                    ratios.append(val / 100.0 if val > 1 else val)
-                except ValueError:
-                    ratios.append(0.0)
+                ratios.append(parse_palette_ratio(record.get(f"color_{idx}_ratio", "")))
 
     raw_names = record.get("color_names")
     if isinstance(raw_names, list):

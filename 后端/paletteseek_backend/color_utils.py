@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import re
+from typing import Any
 from typing import Tuple
 
 
@@ -128,6 +129,38 @@ def rgb_distance(hex1: str, hex2: str) -> float:
     return math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2)
 
 
+def parse_palette_ratio(value: Any) -> float:
+    """
+    将调色盘占比统一解析为 0~1 的浮点数。
+
+    兼容格式：
+    - "36.31%" -> 0.3631
+    - "0.81%"  -> 0.0081
+    - 36.31    -> 0.3631
+    - 0.3631   -> 0.3631
+    """
+    if value is None:
+        return 0.0
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none"}:
+        return 0.0
+
+    has_percent = text.endswith("%")
+    if has_percent:
+        text = text[:-1].strip()
+
+    try:
+        val = float(text)
+    except Exception:
+        return 0.0
+
+    if has_percent:
+        val /= 100.0
+    elif val > 1:
+        val /= 100.0
+    return round(val, 6)
+
+
 # ---------------------------------------------------------------------------
 # 相似度计算：输入颜色 vs 一幅作品的调色盘
 # ---------------------------------------------------------------------------
@@ -159,11 +192,7 @@ def palette_color_similarity(
     # 归一化占比
     ratios = []
     for r in palette_ratios:
-        try:
-            val = float(str(r).strip().rstrip("%"))
-        except (ValueError, AttributeError):
-            val = 0.0
-        ratios.append(val)
+        ratios.append(parse_palette_ratio(r))
 
     total = sum(ratios)
     if total <= 0:
@@ -277,11 +306,7 @@ def palette_family_score(
     # 归一化 ratios（先转为数值，再统一归一化，避免混合格式问题）
     raw = []
     for rv in palette_ratios:
-        try:
-            v = float(str(rv).strip().rstrip("%"))
-            raw.append(v / 100 if v > 1 else v)
-        except Exception:
-            raw.append(0.0)
+        raw.append(parse_palette_ratio(rv))
     total = sum(raw) or 1.0
     norm = [r / total for r in raw]
 

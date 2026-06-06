@@ -24,9 +24,9 @@ from typing import Any
 import pandas as pd
 
 try:
-    from .color_utils import classify_hex_family
+    from .color_utils import classify_hex_family, parse_palette_ratio
 except ImportError:
-    from color_utils import classify_hex_family
+    from color_utils import classify_hex_family, parse_palette_ratio
 
 
 _MAIN_SHEET   = "artworks_final_100"
@@ -62,12 +62,7 @@ def _clean_str(val: Any) -> str:
 
 
 def _parse_ratio(ratio_str: str) -> float:
-    s = str(ratio_str).strip().rstrip("%")
-    try:
-        val = float(s)
-        return round(val / 100.0 if val > 1 else val, 6)
-    except ValueError:
-        return 0.0
+    return parse_palette_ratio(ratio_str)
 
 
 def _extract_palette(rec: dict) -> tuple[list[str], list[float]]:
@@ -86,11 +81,7 @@ def _extract_palette(rec: dict) -> tuple[list[str], list[float]]:
 def _normalize_ratios(ratios: list[float], color_count: int) -> list[float]:
     normalized: list[float] = []
     for ratio in ratios[:color_count]:
-        try:
-            val = float(str(ratio).strip().rstrip("%"))
-            normalized.append(val / 100.0 if val > 1 else val)
-        except Exception:
-            normalized.append(0.0)
+        normalized.append(parse_palette_ratio(ratio))
 
     if len(normalized) < color_count:
         normalized += [0.0] * (color_count - len(normalized))
