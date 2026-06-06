@@ -40,7 +40,6 @@ try:
         is_valid_hex,
         palette_color_similarity,
         palette_family_score,
-        parse_palette_ratio,
     )
     from .data_loader import ArtworkDataset
     from .query_processor import process_query
@@ -50,7 +49,6 @@ except ImportError:
         is_valid_hex,
         palette_color_similarity,
         palette_family_score,
-        parse_palette_ratio,
     )
     from data_loader import ArtworkDataset
     from query_processor import process_query
@@ -305,7 +303,15 @@ def _record_dominant_family(record: dict) -> str:
 
     norm: list[float] = []
     for ratio in ratios[:len(hexes)]:
-        norm.append(parse_palette_ratio(ratio))
+        text = str(ratio or "").strip()
+        has_percent = text.endswith("%")
+        if has_percent:
+            text = text[:-1].strip()
+        try:
+            value = float(text)
+            norm.append(value / 100.0 if has_percent or value > 1 else value)
+        except (TypeError, ValueError):
+            norm.append(0.0)
     if len(norm) < len(hexes):
         norm += [0.0] * (len(hexes) - len(norm))
     total = sum(norm)

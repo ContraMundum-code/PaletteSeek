@@ -39,7 +39,6 @@ try:
     from .color_utils import (
         delta_e,
         hex_to_rgb,
-        parse_palette_ratio,
         rgb_to_hex,
         rgb_to_hsv,
         rgb_to_lab,
@@ -49,7 +48,6 @@ except ImportError:
     from color_utils import (
         delta_e,
         hex_to_rgb,
-        parse_palette_ratio,
         rgb_to_hex,
         rgb_to_hsv,
         rgb_to_lab,
@@ -167,7 +165,15 @@ def ensure_palette_data(record: dict) -> tuple[list[str], list[float], list[str]
             hx = str(record.get(f"color_{idx}_hex", "")).strip()
             if hx:
                 hexes.append(hx)
-                ratios.append(parse_palette_ratio(record.get(f"color_{idx}_ratio", "")))
+                raw_ratio = str(record.get(f"color_{idx}_ratio", "") or "").strip()
+                has_percent = raw_ratio.endswith("%")
+                if has_percent:
+                    raw_ratio = raw_ratio[:-1].strip()
+                try:
+                    value = float(raw_ratio)
+                    ratios.append(value / 100.0 if has_percent or value > 1 else value)
+                except (TypeError, ValueError):
+                    ratios.append(0.0)
 
     raw_names = record.get("color_names")
     if isinstance(raw_names, list):

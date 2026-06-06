@@ -36,7 +36,6 @@ try:  # noqa: E402
         classify_hex_family,
         is_valid_hex,
         palette_color_similarity,
-        parse_palette_ratio,
         rgb_to_hex,
     )
     from paletteseek_backend.result_formatter import generate_usage_suggestion
@@ -57,9 +56,6 @@ except Exception as exc:  # pragma: no cover - runtime guard for missing deps
 
     def generate_usage_suggestion(_: dict) -> dict[str, str]:
         return {}
-
-    def parse_palette_ratio(_: Any) -> float:
-        return 0.0
 
     BACKEND_IMPORT_ERROR = exc
 
@@ -1908,6 +1904,23 @@ def split_items(value: Any) -> list[str]:
         return []
     text = str(value).replace("，", "、").replace(",", "、")
     return [item.strip() for item in text.split("、") if item.strip()]
+
+
+def parse_palette_ratio(value: Any) -> float:
+    """Parse decimal or percentage palette weights without a backend import."""
+    text = str(value or "").strip()
+    if not text or text.lower() in {"nan", "none"}:
+        return 0.0
+    has_percent = text.endswith("%")
+    if has_percent:
+        text = text[:-1].strip()
+    try:
+        ratio = float(text)
+    except (TypeError, ValueError):
+        return 0.0
+    if has_percent or ratio > 1:
+        ratio /= 100.0
+    return max(ratio, 0.0)
 
 
 def palette_bar_html(hexes: list[str], ratios: list[float]) -> str:
