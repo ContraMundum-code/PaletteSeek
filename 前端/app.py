@@ -1690,7 +1690,7 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     background: rgba(255, 253, 248, 0.70);
     box-shadow: var(--ps-tight-shadow);
     transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
-    animation: psPanelBreathe 7.5s ease-in-out infinite alternate;
+    animation: none;
 }
 
 div[data-testid="stVerticalBlockBorderWrapper"]:hover {
@@ -1701,7 +1701,6 @@ div[data-testid="stVerticalBlockBorderWrapper"]:hover {
 
 div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) {
     transform-origin: center 72%;
-    will-change: transform, opacity, filter;
     position: relative;
     overflow: visible;
     border-color: transparent !important;
@@ -1715,8 +1714,6 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-result-card-sentinel) {
         0 26px 54px rgba(31, 34, 31, 0.10),
         0 12px 24px rgba(161, 104, 38, 0.10),
         0 1px 0 rgba(255, 253, 248, 0.72) inset !important;
-    backdrop-filter: blur(10px) saturate(1.14);
-    -webkit-backdrop-filter: blur(10px) saturate(1.14);
     padding: 0.9rem 0.82rem 0.72rem 0.82rem;
     animation: psCardFloatReveal 0.72s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
@@ -1792,8 +1789,6 @@ div[data-testid="stVerticalBlockBorderWrapper"]:has(.ps-submission-card-sentinel
     box-shadow:
         0 12px 26px rgba(31, 34, 31, 0.08),
         0 1px 0 rgba(255, 253, 248, 0.82) inset !important;
-    backdrop-filter: blur(11px) saturate(1.12);
-    -webkit-backdrop-filter: blur(11px) saturate(1.12);
     cursor: pointer;
     transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
 }
@@ -2320,12 +2315,22 @@ def ensure_submission_report_image(card: dict) -> Path | None:
         return None
 
 
+@st.cache_data(show_spinner=False)
+def _image_file_to_data_uri(path_text: str, modified_ns: int) -> str | None:
+    _ = modified_ns
+    path = Path(path_text)
+    try:
+        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+    except Exception:
+        return None
+
+
 def image_to_data_uri(path: Path | None) -> str | None:
     if path is None or not path.exists():
         return None
     try:
-        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-        return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+        return _image_file_to_data_uri(str(path.resolve()), path.stat().st_mtime_ns)
     except Exception:
         return None
 
@@ -2439,13 +2444,13 @@ def submission_image_path(raw_path: Any) -> Path | None:
     return path
 
 
-def load_submissions() -> list[dict]:
-    if not SUBMISSIONS_FILE.exists():
-        return []
+@st.cache_data(show_spinner=False)
+def _load_submissions_cached(path_text: str, modified_ns: int) -> list[dict]:
+    _ = modified_ns
     try:
         import pandas as pd
 
-        df = pd.read_excel(SUBMISSIONS_FILE, dtype=str).fillna("")
+        df = pd.read_excel(path_text, dtype=str).fillna("")
     except Exception:
         return []
 
@@ -2470,6 +2475,18 @@ def load_submissions() -> list[dict]:
         records.append(rec)
     records.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
     return records
+
+
+def load_submissions() -> list[dict]:
+    if not SUBMISSIONS_FILE.exists():
+        return []
+    try:
+        return _load_submissions_cached(
+            str(SUBMISSIONS_FILE.resolve()),
+            SUBMISSIONS_FILE.stat().st_mtime_ns,
+        )
+    except Exception:
+        return []
 
 
 def save_submission(uploaded_file: Any, fields: dict[str, str]) -> tuple[bool, str]:
@@ -2860,7 +2877,13 @@ def render_result_card(card: dict, selected: bool = False) -> None:
             st.markdown(
                 f"""
                 <div class="ps-result-image" title="点击查看作品详情">
-                    <img src="{image_src}" alt="{html.escape(str(card.get("title", "未命名作品")), quote=True)}" />
+                    <img
+                        src="{image_src}"
+                        alt="{html.escape(str(card.get("title", "未命名作品")), quote=True)}"
+                        loading="lazy"
+                        decoding="async"
+                        fetchpriority="low"
+                    />
                     <span class="ps-rank-mark">{rank}</span>
                     <div class="ps-result-cover-caption">
                         <div class="ps-result-cover-title">{card.get("title", "未命名作品")}</div>
@@ -2954,7 +2977,7 @@ def render_submission_card(item: dict, selected: bool = False) -> None:
             st.markdown(
                 f"""
                 <div class="ps-result-image">
-                    <img src="{image_src}" alt="{title}" />
+                    <img src="{image_src}" alt="{title}" loading="lazy" decoding="async" />
                     <span class="ps-submission-badge" style="position:absolute;left:0.72rem;top:0.72rem;z-index:4;margin:0;">用户上传</span>
                     <div class="ps-result-cover-caption">
                         <div class="ps-result-cover-title">{title}</div>
