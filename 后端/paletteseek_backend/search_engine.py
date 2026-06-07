@@ -366,15 +366,51 @@ def _color_terms_score(terms: list[str], record: dict) -> float:
     return sum(scores) / len(scores)
 
 
-def _category_score(query_cats: dict, record: dict) -> float:
+def _color_terms_score_soft(terms: list[str], record: dict) -> float:
+    """
+    推荐式颜色评分：明确色系仍是硬约束，明度/饱和度/冷暖属性只影响排序。
+    """
+    if not terms:
+        return 0.0
+
+    scores: list[float] = []
+    dominant_family = _record_dominant_family(record)
+    combined_text = " ".join(
+        record.get(field, "")
+        for field in ("color_tags", "color_family", "overall_tone", "color_tags_cn")
+        if record.get(field, "")
+    )
+
+    for term in terms:
+        canonical = _canonical_color_family(term)
+        if canonical:
+            if dominant_family != canonical:
+                return 0.0
+            scores.append(1.0)
+            continue
+
+        score = palette_family_score(
+            [term],
+            record.get("palette_hexes", []),
+            record.get("palette_ratios", []),
+        )
+        if score <= 0.0:
+            score = _field_match([term], combined_text)
+        scores.append(score)
+
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _category_score(query_cats: dict, record: dict, strict: bool = True) -> float:
     """
     按 category 分别评分，最终取各 category 分的平均。
 
     规则：
       - NOT 命中 → 直接返回 0.0
       - 用户指定了某 category（terms 非空）：
-          * 该 category 字段完全不命中 → 该 category 得 0 分（拉低整体）
-          * 命中 → 得 0.5~1.0（按命中率）
+            * 该 category 字段完全不命中 → 该条结果不通过
+            * 命中 → 得 0.5~1.0（按命中率）
+      - strict=False 时，明确色系仍为硬约束，其他未命中类别只降低得分
       - 用户未指定某 category：该 category 不参与评分
       - other_terms：走全文 _term_score 兜底（权重较低）
 
@@ -414,7 +450,11 @@ def _category_score(query_cats: dict, record: dict) -> float:
         if key == "color_terms":
             # 颜色：以调色盘实际 hex + ratio 为准，占比越大权重越高
             if record.get("palette_hexes"):
-                score = _color_terms_score(terms, record)
+                score = (
+                    _color_terms_score(terms, record)
+                    if strict
+                    else _color_terms_score_soft(terms, record)
+                )
             else:
                 # 无色卡数据时回退到文字匹配
                 combined = " ".join(record.get(f, "") for f in fields if record.get(f, ""))
@@ -424,15 +464,15 @@ def _category_score(query_cats: dict, record: dict) -> float:
             combined = " ".join(record.get(f, "") for f in fields if record.get(f, ""))
             score = _field_match(terms, combined)
 
-        if score == 0.0:
+        if score == 0.0 and strict:
             return 0.0
         cat_scores.append(score)
 
-    # other_terms 走全文，但仍遵守 AND：任意指定词缺失就排除
+    # other_terms 在严格模式遵守 AND；软模式只作为排序辅助。
     other_scores: list[float] = []
     for t in query_cats.get("other_terms", []):
         s = _term_score(t.lower(), tag_text, full_text)
-        if s == 0.0:
+        if s == 0.0 and strict:
             return 0.0
         other_scores.append(s * 0.6)
 
@@ -496,6 +536,11 @@ def _tfidf_scores_for_terms(
     return result
 
 
+def _looks_like_boolean_query(query: str) -> bool:
+    text = f" {query.lower()} "
+    return any(token in text for token in (" or ", " not ", " 或 ", " 非 ", " 与 "))
+
+
 # ---------------------------------------------------------------------------
 # 主检索类
 # ---------------------------------------------------------------------------
@@ -547,6 +592,17 @@ class SearchEngine:
             scored = [(0.5, rec) for rec in records]
             return self._format_results(scored[:top_k], score_key="keyword")
 
+        if _looks_like_boolean_query(query):
+            parsed = _parse_boolean_query(query)
+            scored = []
+            for rec in records:
+                score = _boolean_score(parsed, rec)
+                if score <= 0.0:
+                    continue
+                scored.append((score, rec))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            return self._format_results(scored[:top_k], score_key="keyword")
+
         # 分类拆词 + 同义词 / Query Mapping 展开
         processed = process_query(query)
 
@@ -575,6 +631,20 @@ class SearchEngine:
             scored.append((combined, result_rec))
 
         scored.sort(key=lambda x: x[0], reverse=True)
+        if not scored:
+            for i, rec in enumerate(self._records):
+                if id(rec) not in record_set:
+                    continue
+                cat_s = _category_score(processed, rec, strict=False)
+                if cat_s <= 0.0:
+                    continue
+                tfidf_s = tfidf_arr[i]
+                combined = 0.75 * cat_s + 0.25 * tfidf_s
+                result_rec = rec.copy()
+                result_rec["_query_info"] = processed
+                result_rec["_query_match_mode"] = "soft"
+                scored.append((combined, result_rec))
+            scored.sort(key=lambda x: x[0], reverse=True)
         return self._format_results(scored[:top_k], score_key="keyword")
 
     # ------------------------------------------------------------------
@@ -663,7 +733,9 @@ class SearchEngine:
         records = self._apply_filters(self._records, filters)
 
         # 分类拆词 + Query Mapping 展开
-        processed = process_query(query) if query else None
+        use_boolean = bool(query and _looks_like_boolean_query(query))
+        processed = None if use_boolean else (process_query(query) if query else None)
+        boolean_parsed = _parse_boolean_query(query) if use_boolean else None
 
         if processed:
             all_terms = (
@@ -679,41 +751,50 @@ class SearchEngine:
 
         record_set = set(id(r) for r in records)
 
-        scored = []
-        for i, rec in enumerate(self._records):
-            if id(rec) not in record_set:
-                continue
-
-            # 颜色相似度
-            if hex_color:
-                color_sim = palette_color_similarity(
-                    hex_color,
-                    rec["palette_hexes"],
-                    rec["palette_ratios"],
-                )
-            else:
-                color_sim = 0.0
-
-            # category-aware 标签得分 + TF-IDF 文本相关度
-            if processed:
-                cat_s    = _category_score(processed, rec)
-                if cat_s == 0.0:
+        def score_records(soft: bool = False) -> list[tuple[float, dict]]:
+            output: list[tuple[float, dict]] = []
+            for i, rec in enumerate(self._records):
+                if id(rec) not in record_set:
                     continue
-                tfidf_s  = tfidf_arr[i] if tfidf_arr is not None else 0.0
-                tag_sim  = 0.75 * cat_s + 0.25 * tfidf_s
-                text_sim = tfidf_s
-            else:
-                tag_sim  = 0.0
-                text_sim = 0.0
 
-            # 综合得分
-            final_score = w_color * color_sim + w_tag * tag_sim + w_text * text_sim
+                color_sim = (
+                    palette_color_similarity(
+                        hex_color,
+                        rec["palette_hexes"],
+                        rec["palette_ratios"],
+                    )
+                    if hex_color
+                    else 0.0
+                )
 
-            result_rec = rec.copy()
-            result_rec["_color_score"] = round(color_sim, 4)
-            result_rec["_text_score"]  = round(text_sim, 4)
-            result_rec["_tag_score"]   = round(tag_sim, 4)
-            scored.append((final_score, result_rec))
+                if boolean_parsed is not None:
+                    text_sim = _boolean_score(boolean_parsed, rec)
+                    if text_sim == 0.0 and not hex_color:
+                        continue
+                    tag_sim = text_sim
+                elif processed:
+                    cat_s = _category_score(processed, rec, strict=not soft)
+                    if cat_s == 0.0:
+                        continue
+                    text_sim = tfidf_arr[i] if tfidf_arr is not None else 0.0
+                    tag_sim = 0.75 * cat_s + 0.25 * text_sim
+                else:
+                    tag_sim = 0.0
+                    text_sim = 0.0
+
+                final_score = w_color * color_sim + w_tag * tag_sim + w_text * text_sim
+                result_rec = rec.copy()
+                result_rec["_color_score"] = round(color_sim, 4)
+                result_rec["_text_score"] = round(text_sim, 4)
+                result_rec["_tag_score"] = round(tag_sim, 4)
+                if soft:
+                    result_rec["_query_match_mode"] = "soft"
+                output.append((final_score, result_rec))
+            return output
+
+        scored = score_records()
+        if not scored and processed is not None:
+            scored = score_records(soft=True)
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return self._format_results(scored[:top_k], score_key="hybrid")

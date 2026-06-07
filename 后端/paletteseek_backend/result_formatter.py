@@ -76,6 +76,7 @@ def format_card(record: dict) -> dict:
         "_color_score":   record.get("_color_score", None),
         "_text_score":    record.get("_text_score", None),
         "_tag_score":     record.get("_tag_score", None),
+        "_query_match_mode": record.get("_query_match_mode", ""),
         "usage_suggestion": generate_usage_suggestion(record),
     }
     return card

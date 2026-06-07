@@ -15,13 +15,13 @@
 从绘画、电影海报与视觉艺术中提取色彩线索
 将模糊的审美意图转译为可检索、可比较、可落地的配色档案。
 
-[Explore PaletteSeek](https://paletteseek.streamlit.app/)
+[在线体验 PaletteSeek](https://paletteseek.streamlit.app/)
 
 </div>
 
 <img src="docs/home.png" alt="PaletteSeek" style="zoom:25%;" />
 
-## Why PaletteSeek
+## 为什么选择 PaletteSeek
 
 找颜色从来不只是找一个 HEX。
 
@@ -33,20 +33,20 @@
 
 用户可以从一个词、一种情绪或一个目标颜色出发，在真实作品中寻找相近的视觉答案，并继续进入作品档案、色卡结构与分析报告。
 
-## The Experience
+## 使用方式
 
-- **Search by intent**
-  用关键词、情绪与使用场景描述目标，例如 `深蓝 冷静 科技 海报 not 暖色`。
+- **按创作意图检索**
+  用关键词、情绪与使用场景描述目标，例如 `深蓝 冷静 科技 海报 NOT 暖色`。
 
-- **Search by color**
+- **按颜色检索**
   
   输入 HEX 或使用取色盘，基于 CIELab、Delta-E 与颜色占比寻找相近作品。
   
-- **Search across signals**
+- **多信号混合检索**
   
   混合检索综合颜色、标签与文本相关度，回答“适合文化展览的低饱和蓝绿色视觉”这类创作问题。
 
-## From Results to Decisions
+## 从检索结果到设计决策
 
 PaletteSeek 不止返回一排图片。
 
@@ -62,16 +62,16 @@ PaletteSeek 不止返回一排图片。
 
 结果区以书架方式陈列作品。悬停可以快速浏览信息，进入详情后再完成比较、判断与色值复用。
 
-## Open, Without Polluting the Archive
+## 开放收录，同时保护正式馆藏
 
 艺术数据库需要开放增长，也需要可信边界。
 
-我们的PaletteSeek 将内容分为两条互不混杂的数据路径：
+PaletteSeek 将内容分为两条互不混杂的数据路径：
 
-| Collection | Role | Default Search |
+| 数据集合 | 作用 | 默认检索状态 |
 |---|---|---|
-| **Curated Archive** | 经过项目整理与标注的正式馆藏 | Included |
-| **Community Uploads** | 用户上传图片与自填元数据 | Isolated |
+| **正式馆藏** | 经过项目整理与标注的正式数据 | 默认纳入 |
+| **用户上传** | 用户上传的图片与自行填写的元数据 | 独立检索 |
 
 用户上传作品可以复用调色盘提取、独立检索、详情浏览和分析报告，但不会进入正式馆藏检索。
 
@@ -79,28 +79,28 @@ PaletteSeek 不止返回一排图片。
 
 ```mermaid
 flowchart LR
-    A["Curated Archive"] --> C["Archive Retrieval"]
-    B["Community Uploads"] --> D["Isolated Retrieval"]
-    B --> E["Automatic Palette Extraction"]
+    A["正式馆藏"] --> C["馆藏检索"]
+    B["用户上传"] --> D["独立检索"]
+    B --> E["自动提取调色板"]
     E --> D
-    C --> F["Artwork Shelf"]
+    C --> F["作品书架"]
     D --> F
-    F --> G["Artwork File"]
-    G --> H["Palette Report"]
+    F --> G["作品档案"]
+    G --> H["配色分析报告"]
 ```
 
-## Product Capabilities
+## 产品能力
 
-- **Hybrid Retrieval**：关键词、语义标签与颜色相似度联合排序
-- **Faceted Discovery**：按色调、色系、文化与分类缩小范围
-- **Artwork Shelf**：强调作品封面与色彩气质的策展式浏览
-- **Palette Intelligence**：主色提取、比例呈现与用途建议
-- **Artwork Files**：将图像、元数据、标签与来源组织为统一档案
-- **Visual Reports**：生成颜色关系网络与比例分析
-- **Community Uploads**：自动提色，并在独立数据区内完成检索与分析
-- **Design Handoff**：复制完整 HEX 组合，快速进入实际创作
+- **混合检索**：关键词、语义标签与颜色相似度联合排序；同时支持基础的自然语言检索
+- **多维筛选**：按色调、色系、文化与分类缩小范围
+- **作品书架**：强调作品封面与色彩气质的策展式浏览
+- **配色分析**：主色提取、比例呈现与用途建议
+- **作品档案**：将图像、元数据、标签与来源组织为统一档案
+- **可视化报告**：生成颜色关系网络与比例分析
+- **用户上传**：自动提色，并在独立数据区内完成检索与分析
+- **设计衔接**：复制完整 HEX 组合，快速进入实际创作
 
-## Design Principles
+## 设计原则
 
 - 颜色不是孤立变量。作品、年代、文化和视觉用途共同构成它的意义。
 
@@ -110,33 +110,33 @@ flowchart LR
 
 - 每次浏览最终都应指向一个可执行结果：可以复制的色值、可以解释的比例，以及可以迁移的视觉关系。
 
-## System
+## 系统架构
 
 ```mermaid
 flowchart LR
-    A["Artwork Metadata"] --> B["Data Normalization"]
-    P["Palette Records"] --> B
-    B --> C["Keyword Retrieval"]
-    B --> D["Color Similarity"]
-    B --> E["Tag Matching"]
-    C --> F["Hybrid Ranking"]
+    A["作品元数据"] --> B["数据标准化"]
+    P["调色板记录"] --> B
+    B --> C["关键词检索"]
+    B --> D["颜色相似度"]
+    B --> E["标签匹配"]
+    C --> F["混合排序"]
     D --> F
     E --> F
-    F --> G["Streamlit Experience"]
-    G --> H["Detail & Report"]
+    F --> G["Streamlit 交互界面"]
+    G --> H["作品详情与报告"]
 ```
 
-| Layer | Technology |
+| 系统层次 | 采用技术 |
 |---|---|
-| Experience | Streamlit |
-| Data | Pandas, OpenPyXL |
-| Image Processing | Pillow |
-| Color Intelligence | RGB, HSV, CIELab, Delta-E |
-| Reporting | Matplotlib, NetworkX |
-| Current Storage | Excel and local image assets |
-| Deployment | Streamlit Community Cloud |
+| 交互界面 | Streamlit |
+| 数据处理 | Pandas、OpenPyXL |
+| 图像处理 | Pillow |
+| 色彩分析 | RGB、HSV、CIELab、Delta-E |
+| 报告生成 | Matplotlib、NetworkX |
+| 当前存储方式 | Excel 与本地图像资源 |
+| 部署平台 | Streamlit Community Cloud |
 
-## Run Locally
+## 本地运行
 
 ```bash
 git clone https://github.com/ContraMundum-code/PaletteSeek.git
@@ -156,7 +156,7 @@ source .venv/bin/activate
 streamlit run 前端/app.py
 ```
 
-## Repository
+## 项目结构
 
 ```text
 PaletteSeek/
@@ -169,7 +169,7 @@ PaletteSeek/
 └── README.md
 ```
 
-## Deployment Notes
+## 部署说明
 
 Streamlit Community Cloud 的应用入口为：
 
@@ -181,25 +181,25 @@ Streamlit Community Cloud 的应用入口为：
 
 当前用户上传数据写入本地 Excel 和图片目录，适合原型验证与演示。面向长期运行时，应迁移至持久化数据库与对象存储，并补充内容审核、重复检测与来源校验。
 
-## Roadmap
+## 后续规划
 
-- Persistent community collection
-- Image-level duplicate detection
-- Source and rights verification
-- Embedding-based multimodal retrieval
-- Palette comparison and collection boards
-- Export workflows for design tools
+- ==为用户上传内容提供持久化存储==
+- ==增加图像级重复检测==
+- 完善来源与版权信息核验
+- ==探索基于向量表示的多模态检索==
+- 增加调色板比较与收藏面板
+- ==衔接设计工具的导出流程==
 
-## Credits
+## 素材来源与项目说明
 
 馆藏素材主要来自 Wikimedia Commons 及项目整理数据。部分作品可能缺少完整官方元数据，系统会尽可能保留原始来源链接。
 
-PaletteSeek was initiated as an exploration of information retrieval, visual culture, and practical color intelligence.
+PaletteSeek 是一次对信息检索、视觉文化与实用色彩分析的综合探索。
 
 
 
 <div align="center">
-Built as a team project for the <strong>Information Storage and Retrieval</strong> course at Peking University.
+本项目为北京大学<strong>信息存储与检索</strong>课程小组作业。
 <br><br>
 <strong>PaletteSeek © 2026</strong>
 </div>

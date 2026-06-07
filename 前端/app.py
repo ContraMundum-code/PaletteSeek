@@ -38,6 +38,7 @@ try:  # noqa: E402
         palette_color_similarity,
         rgb_to_hex,
     )
+    from paletteseek_backend.query_processor import process_query
     from paletteseek_backend.result_formatter import generate_usage_suggestion
 except Exception as exc:  # pragma: no cover - runtime guard for missing deps
     PaletteSeek = Any  # type: ignore[assignment]
@@ -53,6 +54,17 @@ except Exception as exc:  # pragma: no cover - runtime guard for missing deps
 
     def palette_color_similarity(_: str, __: list[str], ___: list[float]) -> float:
         return 0.0
+
+    def process_query(_: str) -> dict[str, Any]:
+        return {
+            "color_terms": [],
+            "emotion_terms": [],
+            "style_terms": [],
+            "use_terms": [],
+            "other_terms": [],
+            "not_terms": [],
+            "debug": {},
+        }
 
     def generate_usage_suggestion(_: dict) -> dict[str, str]:
         return {}
@@ -1940,6 +1952,26 @@ def palette_bar_html(hexes: list[str], ratios: list[float]) -> str:
     return '<div class="ps-palette">' + "".join(parts) + "</div>"
 
 
+def build_palette_preview(hexes: list[str], ratios: list[float]) -> Image.Image | None:
+    clean_hexes = [str(value).strip() for value in hexes if is_valid_hex(str(value).strip())]
+    if not clean_hexes:
+        return None
+
+    clean_ratios = [parse_palette_ratio(value) for value in ratios[: len(clean_hexes)]]
+    if len(clean_ratios) != len(clean_hexes) or sum(clean_ratios) <= 0:
+        clean_ratios = [1.0] * len(clean_hexes)
+
+    width, height = 1200, 300
+    total = sum(clean_ratios)
+    preview = Image.new("RGB", (width, height), "#F7F4EC")
+    left = 0
+    for index, (hex_color, ratio) in enumerate(zip(clean_hexes, clean_ratios)):
+        right = width if index == len(clean_hexes) - 1 else round(left + width * ratio / total)
+        preview.paste(hex_color, (left, 0, max(right, left + 1), height))
+        left = right
+    return preview
+
+
 def usage_badges(usage: dict[str, str]) -> str:
     if not usage:
         return '<div class="ps-muted-note">暂无配色建议。</div>'
@@ -2020,7 +2052,7 @@ def render_hero(ps: PaletteSeek) -> None:
                             </div>
                         </div>
                         <div class="ps-muted-note" style="color:rgba(255,253,248,0.68);font-size:0.76rem;margin-top:0.68rem;">
-                            关键词支持 OR / NOT；颜色检索可直接选择或粘贴 HEX；空关键词会展示全部作品。
+                            支持自然语言输入，系统会自动识别颜色 / 风格 / 情绪 / 场景；也支持 OR / NOT。颜色检索可直接选择或粘贴 HEX；空关键词会展示全部作品。
                         </div>
                     </div>
                 </div>
@@ -2056,12 +2088,54 @@ def build_filter_options(ps: PaletteSeek) -> dict[str, list[str]]:
     }
 
 
+def render_query_preview(query: str) -> None:
+    query = query.strip()
+    if not query:
+        return
+
+    try:
+        parsed = process_query(query)
+    except Exception:
+        return
+
+    parts: list[tuple[str, str]] = []
+    mapping = [
+        ("颜色", parsed.get("color_terms", [])),
+        ("情绪", parsed.get("emotion_terms", [])),
+        ("风格", parsed.get("style_terms", [])),
+        ("场景", parsed.get("use_terms", [])),
+        ("其他", parsed.get("other_terms", [])),
+    ]
+    for label, items in mapping:
+        values = [str(item) for item in items if str(item).strip()]
+        if values:
+            parts.append((label, "、".join(values[:4])))
+
+    if not parts:
+        return
+
+    st.markdown(
+        "<div class=\"ps-muted-note\" style=\"margin-top:0.35rem;\">系统识别为：</div>",
+        unsafe_allow_html=True,
+    )
+    chips = "".join(
+        f'<span class="ps-chip">{html.escape(label)}：{html.escape(value)}</span>'
+        for label, value in parts
+    )
+    st.markdown(f'<div class="ps-chip-row">{chips}</div>', unsafe_allow_html=True)
+
+
 def render_controls(filter_options: dict[str, list[str]]) -> dict[str, str]:
-    st.markdown('<div class="ps-section-title">检索工作台 <span>/ Search Desk</span></div>', unsafe_allow_html=True)
     st.markdown(
         """
-        <div class="ps-workbench-note">
-            先选择检索方式，再用关键词、颜色或筛选条件缩小范围。页面会把结果整理成作品档案卡，便于横向比较配色气质。
+        <div class="ps-section-title">
+            检索工作台 <span>/ Search Desk</span>
+            <span class="ps-section-help">
+                <span class="ps-section-help-dot">?</span>
+                <span class="ps-section-help-panel">
+                    先选择检索模式，再输入一句自然语言或关键词。系统会自动拆成颜色、风格、情绪和场景条件，并把结果整理成作品档案卡方便比较。
+                </span>
+            </span>
         </div>
         <div class="ps-workbench-rule"></div>
         """,
@@ -2075,20 +2149,21 @@ def render_controls(filter_options: dict[str, list[str]]) -> dict[str, str]:
             ["混合检索", "关键词检索", "颜色检索"],
             horizontal=True,
             key="mode_select",
+            help="切换不同检索入口。混合检索支持自然语言，关键词检索支持 OR / NOT，颜色检索可直接选色或粘贴 HEX。",
         )
         q_col, b_col = st.columns([0.84, 0.16], gap="small")
         with q_col:
             query = st.text_input(
-                "关键词",
+                "搜索词",
                 value=st.session_state.get("query_text", ""),
-                placeholder="例如：电影海报 深蓝、冷色 科技、蓝紫 not 暖色",
-                help="支持 OR / NOT 布尔语法，例如：深蓝 or 蓝紫 not 暖色",
+                placeholder="例如：深蓝色 科技感 适合答辩PPT",
+                help="支持自然语言输入，系统会自动拆成颜色 / 风格 / 情绪 / 场景；也支持 OR / NOT。",
                 key="query_text",
             )
         with b_col:
             st.markdown('<div class="ps-control-spacer"></div>', unsafe_allow_html=True)
             st.button("搜索", use_container_width=True, key="search_btn")
-        st.caption("支持 OR / NOT；空关键词会默认展示全部作品。")
+        render_query_preview(query)
 
     with right:
         hex_text = st.color_picker(
@@ -2097,7 +2172,6 @@ def render_controls(filter_options: dict[str, list[str]]) -> dict[str, str]:
             help="颜色检索时，可粘贴 HEX 色值，以该颜色为基准匹配配色方案。",
             key="hex_text",
         )
-        st.caption("点击色块取色，或粘贴 HEX 色值；颜色检索会以该颜色为基准匹配。")
         top_k = st.number_input(
             "最大结果数量",
             min_value=1,
@@ -2137,7 +2211,6 @@ def render_controls(filter_options: dict[str, list[str]]) -> dict[str, str]:
             <span class="ps-chip">当前模式：{mode}</span>
             <span class="ps-chip">筛选：{filter_note}</span>
             <span class="ps-chip">最多展示：{top_k} 条</span>
-            <span class="ps-chip">颜色提示：HEX 可直接粘贴</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2178,7 +2251,13 @@ def search_artworks(ps: PaletteSeek, values: dict[str, str]) -> tuple[list[dict]
     if mode == "关键词检索":
         if not query:
             return ps.get_all(top_k=top_k), "关键词为空，当前展示全部作品。"
-        return ps.keyword_search(query=query, top_k=top_k, filters=filters), None
+        results = ps.keyword_search(query=query, top_k=top_k, filters=filters)
+        note = (
+            "没有找到同时满足全部条件的作品，当前展示放宽部分辅助条件后的相近结果。"
+            if results and results[0].get("_query_match_mode") == "soft"
+            else None
+        )
+        return results, note
 
     if mode == "颜色检索":
         if not is_valid_hex(hex_text):
@@ -2191,7 +2270,13 @@ def search_artworks(ps: PaletteSeek, values: dict[str, str]) -> tuple[list[dict]
     if hex_text and not is_valid_hex(hex_text):
         raise ValueError("HEX 格式不正确，请输入 6 位十六进制颜色，例如 #1E3A8A。")
 
-    return ps.hybrid_search(query=query, hex_color=hex_text, top_k=top_k, filters=filters), None
+    results = ps.hybrid_search(query=query, hex_color=hex_text, top_k=top_k, filters=filters)
+    note = (
+        "没有找到同时满足全部条件的作品，当前展示放宽部分辅助条件后的相近结果。"
+        if results and results[0].get("_query_match_mode") == "soft"
+        else None
+    )
+    return results, note
 
 
 def ensure_selected_card(results: list[dict]) -> dict | None:
@@ -2270,6 +2355,20 @@ def reset_filters() -> None:
     st.session_state.report_card_id = None
 
 
+def reset_submission_filters() -> None:
+    st.session_state.selected_submission_id = None
+    st.session_state.submission_query_text = ""
+    st.session_state.submission_hex_text = "#1E3A8A"
+    st.session_state.submission_top_k = 30
+    st.session_state.submission_mode_select = "混合检索"
+    st.session_state.submission_filter_overall_tone = "全部"
+    st.session_state.submission_filter_color_family = "全部"
+    st.session_state.submission_filter_culture = "全部"
+    st.session_state.submission_filter_classification = "全部"
+    st.session_state.show_submission_report = False
+    st.session_state.submission_report_id = None
+
+
 def get_report_path(card_id: str) -> Path:
     return REPORTS_DIR / f"{card_id}_palette_report.png"
 
@@ -2277,6 +2376,15 @@ def get_report_path(card_id: str) -> Path:
 def get_submission_report_path(submission_id: str) -> Path:
     safe_id = "".join(ch if ch.isalnum() or ch in ("_", "-") else "_" for ch in str(submission_id))
     return SUBMISSION_REPORTS_DIR / f"{safe_id}_palette_report.png"
+
+
+def report_download_filename(title: Any) -> str:
+    safe_title = "".join(
+        char if char.isalnum() or char in ("-", "_", " ") else "_"
+        for char in str(title or "未命名作品").strip()
+    )
+    safe_title = "_".join(safe_title.split()) or "未命名作品"
+    return f"{safe_title}_配色分析报告.png"
 
 
 def ensure_report_image(card: dict) -> Path | None:
@@ -2564,26 +2672,60 @@ def build_submission_filter_options(submissions: list[dict]) -> dict[str, list[s
 
 def render_submission_controls(submissions: list[dict]) -> dict[str, Any]:
     filter_options = build_submission_filter_options(submissions)
-    st.markdown('<div class="ps-label">检索台</div>', unsafe_allow_html=True)
-    mode = st.radio(
-        "检索模式",
-        ["混合检索", "关键词检索", "颜色检索"],
-        horizontal=True,
-        key="submission_mode_select",
+    st.markdown(
+        """
+        <div class="ps-section-title">
+            开放区检索台 <span>/ Search Desk</span>
+            <span class="ps-section-help">
+                <span class="ps-section-help-dot">?</span>
+                <span class="ps-section-help-panel">
+                    支持自然语言、关键词和颜色检索。系统会自动拆解颜色、风格、情绪和场景，
+                    但结果始终只来自用户上传区域，不会与正式馆藏混合。
+                </span>
+            </span>
+        </div>
+        <div class="ps-workbench-rule"></div>
+        """,
+        unsafe_allow_html=True,
     )
-    q_col, c_col = st.columns([0.62, 0.38], gap="small")
-    with q_col:
-        query = st.text_input(
-            "关键词",
-            value=st.session_state.get("submission_query_text", ""),
-            placeholder="例如：海报 蓝色 梦幻 not 暖色",
-            key="submission_query_text",
+
+    left, right = st.columns([1.1, 0.9], gap="large")
+    with left:
+        mode = st.radio(
+            "检索模式",
+            ["混合检索", "关键词检索", "颜色检索"],
+            horizontal=True,
+            key="submission_mode_select",
+            help="切换不同检索入口。混合检索支持自然语言，关键词检索支持 OR / NOT，颜色检索可直接选色或粘贴 HEX。",
         )
-    with c_col:
+        q_col, b_col = st.columns([0.84, 0.16], gap="small")
+        with q_col:
+            query = st.text_input(
+                "搜索词",
+                value=st.session_state.get("submission_query_text", ""),
+                placeholder="例如：深蓝色 科技感 适合答辩PPT",
+                help="支持自然语言输入，系统会自动拆成颜色 / 风格 / 情绪 / 场景；也支持 OR / NOT。",
+                key="submission_query_text",
+            )
+        with b_col:
+            st.markdown('<div class="ps-control-spacer"></div>', unsafe_allow_html=True)
+            st.button("搜索", use_container_width=True, key="submission_search_btn")
+        render_query_preview(query)
+
+    with right:
         hex_text = st.color_picker(
-            "颜色",
+            "HEX 色值 / 取色盘",
             value=st.session_state.get("submission_hex_text", "#1E3A8A"),
+            help="颜色检索时，可粘贴 HEX 色值，以该颜色为基准匹配开放区作品。",
             key="submission_hex_text",
+        )
+        top_k = st.number_input(
+            "最大结果数量",
+            min_value=1,
+            value=int(st.session_state.get("submission_top_k", 30)),
+            step=1,
+            help="设置开放区本次检索最多展示多少条结果；实际结果可能少于这个数量。",
+            key="submission_top_k",
         )
 
     f1, f2, f3, f4, f5 = st.columns([1, 1, 1, 1, 0.8], gap="small")
@@ -2596,13 +2738,36 @@ def render_submission_controls(submissions: list[dict]) -> dict[str, Any]:
     with f4:
         classification = st.selectbox("分类", filter_options["classification"], key="submission_filter_classification")
     with f5:
-        top_k = st.number_input(
-            "最大结果数量",
-            min_value=1,
-            value=int(st.session_state.get("submission_top_k", 30)),
-            step=1,
-            key="submission_top_k",
+        st.markdown('<div class="ps-control-spacer"></div>', unsafe_allow_html=True)
+        has_active_filter = any(
+            value and value != "全部"
+            for value in (overall_tone, color_family, culture, classification)
         )
+        reset_label = "重置筛选" if has_active_filter else "无筛选"
+        st.button(
+            reset_label,
+            use_container_width=True,
+            key="submission_reset_filters_btn",
+            on_click=reset_submission_filters,
+            disabled=not has_active_filter,
+        )
+
+    active_filters = [
+        value
+        for value in (overall_tone, color_family, culture, classification)
+        if value and value != "全部"
+    ]
+    filter_note = " · ".join(active_filters) if active_filters else "未启用筛选"
+    st.markdown(
+        f"""
+        <div class="ps-chip-row">
+            <span class="ps-chip">当前模式：{mode}</span>
+            <span class="ps-chip">筛选：{filter_note}</span>
+            <span class="ps-chip">最多展示：{top_k} 条</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     return {
         "mode": mode,
@@ -2630,23 +2795,62 @@ def keyword_score_for_submission(query: str, item: dict) -> float:
     if not raw:
         return 1.0
 
-    not_terms: list[str] = []
-    if " not " in f" {raw} ":
+    if " or " in f" {raw} " or " not " in f" {raw} ":
+        not_terms: list[str] = []
         chunks = raw.split(" not ")
         raw = chunks[0].strip()
         not_terms = [term.strip() for chunk in chunks[1:] for term in chunk.replace("，", " ").split() if term.strip()]
+        if any(term in text for term in not_terms):
+            return 0.0
+
+        or_terms = [term.strip() for term in raw.split(" or ") if term.strip()]
+        if len(or_terms) > 1:
+            return 1.0 if any(term in text for term in or_terms) else 0.0
+
+    try:
+        parsed = process_query(query)
+    except Exception:
+        terms = [term.strip() for term in raw.replace("，", " ").split() if term.strip()]
+        return sum(1 for term in terms if term in text) / len(terms) if terms else 1.0
+
+    not_terms = [str(term).lower() for term in parsed.get("not_terms", []) if str(term).strip()]
     if any(term in text for term in not_terms):
         return 0.0
 
-    or_terms = [term.strip() for term in raw.replace(" or ", " OR ").split(" OR ") if term.strip()]
-    if len(or_terms) > 1:
-        return 1.0 if any(term in text for term in or_terms) else 0.0
+    category_fields = [
+        ("color_terms", ("color_tags", "color_family", "overall_tone"), 1.25),
+        ("emotion_terms", ("emotion_tags", "tags"), 1.0),
+        ("style_terms", ("style_tags", "classification", "medium", "tags"), 0.9),
+        ("use_terms", ("use_tags", "usage_note", "tags"), 0.9),
+        ("other_terms", tuple(), 0.7),
+    ]
+    weighted_score = 0.0
+    total_weight = 0.0
+    for key, fields, weight in category_fields:
+        terms = [str(term).lower() for term in parsed.get(key, []) if str(term).strip()]
+        if not terms:
+            continue
+        category_text = (
+            " ".join(str(item.get(field, "")) for field in fields).lower()
+            if fields
+            else text
+        )
+        weighted_score += weight * (sum(1 for term in terms if term in category_text) / len(terms))
+        total_weight += weight
 
-    terms = [term.strip() for term in raw.replace("，", " ").split() if term.strip()]
-    if not terms:
-        return 1.0
-    matched = sum(1 for term in terms if term in text)
-    return matched / len(terms)
+    recognized_phrases = [
+        str(phrase).lower()
+        for phrase in parsed.get("debug", {})
+        if str(phrase).strip()
+    ]
+    phrase_score = (
+        sum(1 for phrase in recognized_phrases if phrase in text) / len(recognized_phrases)
+        if recognized_phrases
+        else 0.0
+    )
+    if total_weight <= 0:
+        return phrase_score
+    return min(1.0, 0.85 * (weighted_score / total_weight) + 0.15 * phrase_score)
 
 
 def filter_submission_records(submissions: list[dict], values: dict[str, Any]) -> list[dict]:
@@ -2736,7 +2940,7 @@ def render_palette_copy_tools(hexes: list[str]) -> None:
             display: flex;
             align-items: center;
             justify-content: flex-start;
-            margin-top: 0;
+            margin-top: 8px;
           }}
           .ps-copy-all {{
             border: 1px solid rgba(36, 95, 90, 0.14);
@@ -2762,18 +2966,43 @@ def render_palette_copy_tools(hexes: list[str]) -> None:
               0 14px 28px rgba(31, 34, 31, 0.08),
               0 1px 0 rgba(255, 255, 255, 0.88) inset;
           }}
+          .ps-copy-all.is-copied {{
+            transform: translateY(-1px) scale(1.03);
+            border-color: rgba(36, 123, 91, 0.34);
+            background: linear-gradient(135deg, rgba(225, 247, 232, 0.94), rgba(206, 239, 225, 0.82));
+            color: #1f6f50;
+            box-shadow:
+              0 12px 24px rgba(31, 111, 80, 0.12),
+              0 0 0 3px rgba(56, 142, 104, 0.08);
+          }}
+          .ps-copy-all.is-error {{
+            border-color: rgba(174, 77, 62, 0.32);
+            background: rgba(252, 232, 226, 0.92);
+            color: #9a493c;
+          }}
         </style>
         <script>
           async function copyText(text) {{
             try {{
               await navigator.clipboard.writeText(text);
+              return true;
             }} catch (err) {{
               console.warn("copy failed", err);
+              return false;
             }}
           }}
-          document.querySelector(".ps-copy-all").addEventListener("click", (event) => {{
-            const values = JSON.parse(event.currentTarget.dataset.palette || "[]");
-            copyText(values.join(" "));
+          document.querySelector(".ps-copy-all").addEventListener("click", async (event) => {{
+            const button = event.currentTarget;
+            const values = JSON.parse(button.dataset.palette || "[]");
+            const copied = await copyText(values.join(" "));
+            button.classList.remove("is-copied", "is-error");
+            button.classList.add(copied ? "is-copied" : "is-error");
+            button.textContent = copied ? "已复制 ✓" : "复制失败，请重试";
+            window.clearTimeout(button._feedbackTimer);
+            button._feedbackTimer = window.setTimeout(() => {{
+              button.classList.remove("is-copied", "is-error");
+              button.textContent = "复制全套色值";
+            }}, 1600);
           }});
         </script>
         """,
@@ -3122,6 +3351,14 @@ def render_submission_detail_panel(card: dict | None) -> None:
                     """,
                     unsafe_allow_html=True,
                 )
+                st.download_button(
+                    "导出报告 PNG",
+                    data=report_image.read_bytes(),
+                    file_name=report_download_filename(card.get("title", "未命名上传作品")),
+                    mime="image/png",
+                    use_container_width=True,
+                    key=f"download_submission_report_{card_id}",
+                )
             return
 
         st.markdown('<div class="ps-soft-appear">', unsafe_allow_html=True)
@@ -3175,19 +3412,20 @@ def render_submission_detail_panel(card: dict | None) -> None:
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="ps-label" style="margin-top:0.9rem;">色卡图</div>', unsafe_allow_html=True)
-            try:
-                backend = get_backend()
-                palette_img = backend.get_palette_image_path(card.get("id"))
-            except Exception:
-                palette_img = None
-            if palette_img:
+            palette_preview = build_palette_preview(
+                card.get("palette_hexes", []),
+                card.get("palette_ratios", []),
+            )
+            if palette_preview is not None:
                 st.markdown('<div class="ps-image-frame">', unsafe_allow_html=True)
-                st.image(str(palette_img), use_container_width=True)
+                st.image(palette_preview, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 st.markdown('<div style="height:0.20rem;"></div>', unsafe_allow_html=True)
-                render_palette_copy_tools(card.get("palette_hexes", []))
             else:
-                st.caption("本地色卡图片未找到。")
+                st.caption("暂时无法生成色卡图。")
+
+            if card.get("palette_hexes"):
+                render_palette_copy_tools(card.get("palette_hexes", []))
 
             st.markdown('<div class="ps-detail-divider"></div>', unsafe_allow_html=True)
             st.markdown('<div class="ps-label" style="margin-top:0.9rem;">配色用途建议</div>', unsafe_allow_html=True)
@@ -3418,6 +3656,14 @@ def render_detail_panel(card: dict | None) -> None:
                     </div>
                     """,
                     unsafe_allow_html=True,
+                )
+                st.download_button(
+                    "导出报告 PNG",
+                    data=report_image.read_bytes(),
+                    file_name=report_download_filename(card.get("title", "未命名作品")),
+                    mime="image/png",
+                    use_container_width=True,
+                    key=f"download_report_{card.get('id')}",
                 )
             return
 
